@@ -8,12 +8,15 @@ from streamlit_folium import st_folium
 from data import get_hydrants
 from graph_cache import get_graph
 from routing import nearby_hydrants, nearby_hydrants_geodesic, nearby_hydrants_network
-from ui.map import add_route, set_location_from_click
+from ui.map import add_route, consume_pending_click, ensure_incident_location, set_location_from_click
 from workflow import _capacity_of
 
 st.title("Hydrant visualization")
 
 hydrants = get_hydrants()
+
+consume_pending_click()
+ensure_incident_location()
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -84,7 +87,7 @@ if lat is not None and lon is not None:
 
 map_data = st_folium(m, height=600, key="vis_map")
 set_location_from_click(map_data)
-st.caption("Click the map to set the incident location.")
+st.caption("Click the map to move the incident marker.")
 
 if lat is not None and lon is not None:
     man = nearby_hydrants(lat, lon, 1e9, hydrants)

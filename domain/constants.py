@@ -27,6 +27,10 @@ DEFAULT_RADIUS_STEP = 30
 DEFAULT_MAX_RADIUS = 1500
 DEFAULT_PLANNING_RESERVE_PERCENT = 50  # illustrative planning reserve (%)
 
+# Default incident location for map-based pages (Copenhagen demo area). The
+# red "i" marker is placed here until the user clicks elsewhere to move it.
+DEFAULT_INCIDENT_LOCATION = (55.664178, 12.607972)
+
 # Hose-inventory constants.
 HOSE_PIECE_M = 15.0      # hose piece length (m)
 CARRIED_PIECES = 30      # hose pieces carried on the vehicle

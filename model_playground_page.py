@@ -15,7 +15,12 @@ from domain import (
 from graph_cache import get_graph
 from routing import build_candidates
 from solver import solve_model
-from ui.map import render_hydrant_map, render_location_picker, set_location_from_click
+from ui.map import (
+    consume_pending_click,
+    ensure_incident_location,
+    render_incident_map,
+    set_location_from_click,
+)
 from workflow import flow_status_lines, planning_target_flow, summarize_flow
 
 st.title("Model playground")
@@ -53,6 +58,9 @@ with st.sidebar:
     radius_step = st.number_input("Radius step (m)", key="radius_step", min_value=10, value=30, step=10)
     start_radius = st.number_input("Starting radius (m)", key="start_radius", min_value=0, value=30, step=10)
     max_radius = st.number_input("Maximum radius (m)", key="fire_radius", min_value=start_radius, value=1500, step=10)
+
+consume_pending_click()
+ensure_incident_location()
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -107,10 +115,21 @@ if st.button("Run model", key="run_btn", disabled=not location_ok):
 
 
 result = st.session_state.get("run_result")
+
+# --- always-visible map: movable incident marker + latest run overlay ---
+map_data = render_incident_map(
+    lat, lon, hydrants, key="playground_map",
+    candidates=st.session_state.get("run_candidates"),
+    selected=(result.selected if result else None),
+    radius=st.session_state.get("run_radius"),
+    graph=st.session_state.get("run_graph"),
+    street_routes=(st.session_state.get("run_method", distance_method) == "network"),
+)
+set_location_from_click(map_data)
+st.caption("Click the map to move the incident marker.")
+
 if result is None:
-    st.info("Pick the incident location on the map (or enter coordinates) and click 'Run model'.")
-    map_data = render_location_picker(lat, lon, hydrants, key="playground_picker")
-    set_location_from_click(map_data)
+    st.info("Click 'Run model' to see the result for the current marker location.")
 else:
     demand = st.session_state["run_demand"]
     radius = st.session_state["run_radius"]
@@ -166,16 +185,3 @@ else:
         st.write("Hose inventory: not applicable")
     st.write(f"Deployment time: **{result.deployment_time:.2f} time units**")
     st.info(result.recommendation)
-
-    st.subheader("Map")
-    fire_lat, fire_lon = st.session_state["run_fire"]
-    map_data = render_hydrant_map(
-        fire_lat, fire_lon,
-        st.session_state["run_candidates"],
-        result.selected,
-        radius,
-        graph=st.session_state.get("run_graph"),
-        street_routes=(method == "network"),
-        key="playground_result_map",
-    )
-    set_location_from_click(map_data)

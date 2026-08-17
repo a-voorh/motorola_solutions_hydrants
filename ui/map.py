@@ -12,26 +12,66 @@ import folium
 import streamlit as st
 from streamlit_folium import st_folium
 
+from domain import DEFAULT_INCIDENT_LOCATION
 from routing import route_geometry
 
 
-def set_location_from_click(map_data, lat_key="fire_lat", lon_key="fire_lon"):
-    """Write a map's ``last_clicked`` payload into the incident-location state."""
+_PENDING_CLICK = "_map_pending_click"
+
+
+def ensure_incident_location(lat_key="fire_lat", lon_key="fire_lon"):
+    """Set a default incident location if none has been chosen yet.
+
+    Call this *before* the ``lat``/``lon`` widgets are created so the red
+    "i" marker is always placed somewhere the user can move from.
+    """
+    if st.session_state.get(lat_key) is None or st.session_state.get(lon_key) is None:
+        st.session_state[lat_key] = DEFAULT_INCIDENT_LOCATION[0]
+        st.session_state[lon_key] = DEFAULT_INCIDENT_LOCATION[1]
+
+
+def set_location_from_click(map_data):
+    """Buffer a map's ``last_clicked`` payload and rerun.
+
+    The click is stored under a non-widget key so it can be applied to the
+    ``fire_lat``/``fire_lon`` widget state on the next run (see
+    ``consume_pending_click``), before those widgets are instantiated.
+    """
     if map_data and map_data.get("last_clicked"):
-        st.session_state[lat_key] = map_data["last_clicked"]["lat"]
-        st.session_state[lon_key] = map_data["last_clicked"]["lng"]
+        st.session_state[_PENDING_CLICK] = (
+            map_data["last_clicked"]["lat"],
+            map_data["last_clicked"]["lng"],
+        )
         st.rerun()
 
 
-def render_location_picker(lat, lon, hydrants_df, key="location_picker", height=450):
-    """Render a tappable full-hydrant map for choosing an incident location.
+def consume_pending_click(lat_key="fire_lat", lon_key="fire_lon"):
+    """Apply a buffered map click to the location state.
 
-    Centered on ``(lat, lon)`` when given, otherwise on the hydrant centroid.
-    Returns the ``st_folium`` click payload.
+    Call this *before* the ``lat``/``lon`` widgets are created so writing their
+    keys is allowed (Streamlit forbids modifying a keyed widget's state after
+    it has been instantiated).
+    """
+    if _PENDING_CLICK in st.session_state:
+        lat, lon = st.session_state.pop(_PENDING_CLICK)
+        st.session_state[lat_key] = lat
+        st.session_state[lon_key] = lon
+
+
+def render_incident_map(lat, lon, hydrants_df, key="incident_map", height=500,
+                        candidates=None, selected=None, radius=None,
+                        graph=None, street_routes=False):
+    """Render a tappable map with a movable incident marker.
+
+    Always shows all hydrants (small gray markers) plus the red "i" incident
+    marker at ``(lat, lon)``. When a model run is available, additionally
+    overlays the candidate set (blue), the selected hydrants (green) with their
+    routes, and the search radius circle. Returns the ``st_folium`` click
+    payload so a tap can move the incident marker.
     """
     center = (lat, lon) if (lat is not None and lon is not None) else (
         hydrants_df["Latitude"].mean(), hydrants_df["Longitude"].mean())
-    m = folium.Map(location=center, zoom_start=13)
+    m = folium.Map(location=center, zoom_start=15)
 
     for _, row in hydrants_df.iterrows():
         folium.CircleMarker(
@@ -41,6 +81,46 @@ def render_location_picker(lat, lon, hydrants_df, key="location_picker", height=
             fill=True,
             fill_opacity=0.4,
         ).add_to(m)
+
+    if radius is not None and lat is not None and lon is not None:
+        folium.Circle(
+            location=(lat, lon), radius=radius, color="red",
+            weight=2, fill=False, dash_array="4 4",
+        ).add_to(m)
+
+    selected_ids = {s.hydrant for s in selected} if selected else set()
+    if candidates is not None:
+        for hid, row in candidates.iterrows():
+            if hid in selected_ids:
+                continue
+            folium.CircleMarker(
+                location=(row["Latitude"], row["Longitude"]),
+                radius=4,
+                color="blue",
+                fill=True,
+                fill_opacity=0.6,
+                tooltip=(
+                    f"{hid} — {row['Distance_m']:.0f} m, "
+                    f"{row['Capacity_L_min']:.0f} L/min"
+                ),
+            ).add_to(m)
+
+    if selected:
+        for s in selected:
+            folium.CircleMarker(
+                location=(s.latitude, s.longitude),
+                radius=7,
+                color="green",
+                fill=True,
+                fill_opacity=0.9,
+                tooltip=(
+                    f"{s.hydrant} — {s.distance_m:.0f} m, "
+                    f"{s.effective_capacity:.0f} L/min (selected)"
+                ),
+            ).add_to(m)
+            if lat is not None and lon is not None:
+                add_route(m, lat, lon, s.latitude, s.longitude,
+                          graph=graph, street_routes=street_routes)
 
     if lat is not None and lon is not None:
         folium.Marker(
