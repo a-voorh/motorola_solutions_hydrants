@@ -30,7 +30,7 @@ def _candidate_pool(plan, hydrants_df):
     return hydrants_df[~hydrants_df["Hydrant"].isin(excl)]
 
 
-def _plan_summary_text(plan, r=None):
+def _plan_summary_text(plan):
     """One-line plan summary for the chat log."""
     res = plan.get("result")
     if res is not None:

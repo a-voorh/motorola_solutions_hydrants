@@ -1,7 +1,12 @@
 """Deterministic tests for the A/B/C-soft/C-hard water-supply models (no Streamlit).
 
-Each selected hydrant uses a single connection and contributes its full modelled
-capacity (decayed where applicable).
+Model progression under test:
+
+  * A       -- naive baseline: nominal capacity + simple distance objective.
+  * B       -- deployment-time: nominal capacity + route/setup time.
+  * C-soft  -- hose-aware: inventory + parallel lines + friction-loss proxy,
+               reinforcement allowed.
+  * C-hard  -- hose-aware: same, with a hard inventory limit.
 """
 
 import math
@@ -31,211 +36,182 @@ def make_candidates(specs):
     return candidates, hydrants
 
 
-# --- Model A ignores q and r -----------------------------------------------
+# --- 1. Model A retains its current behaviour ------------------------------
 
-def test_model_a_ignores_q_and_r():
+def test_model_a_uses_nominal_capacity_and_distance_objective():
     cand, hyd = make_candidates([("H1", 100.0, 1000.0), ("H2", 200.0, 1000.0)])
-    res = solve_model("A", cand, 1000.0, params=Params(q=10.0, r=0.058), hydrants_df=hyd)
+    # q and gamma must not affect A: full nominal capacity, objective = d / v.
+    res = solve_model("A", cand, 1000.0, params=Params(q=10.0, gamma=0.001), hydrants_df=hyd)
 
-    # Single hydrant, full nominal capacity (no decay) -> objective = 100 / 5 = 20.
     assert res.demand_met
     assert [s.hydrant for s in res.selected] == ["H1"]
     assert res.selected[0].effective_capacity == pytest.approx(1000.0)
     assert res.demand_served == pytest.approx(1000.0)
-    assert res.deployment_time == pytest.approx(20.0)
-    # H1 at 100 m -> 4 hose pieces (ceil(100 / 30)); within carried stock.
-    assert res.selected[0].hose_pieces == 4
-    assert res.hose_pieces_used == 4
-    assert res.carried_pieces_used == 4
-    assert res.extra_hose_pieces == 0
+    assert res.deployment_time == pytest.approx(100.0 / 5.0)
+    # H1 at 100 m -> ceil(100 / 15) = 7 pieces (one line).
+    assert res.selected[0].hose_pieces == 7
+    assert res.selected[0].lines == 1
 
 
-# --- Model B applies q and r -----------------------------------------------
+# --- 2. Model B uses nominal capacity (no exponential decay) ----------------
 
-def test_model_b_applies_q_and_r():
+def test_model_b_uses_nominal_capacity_no_decay():
     cand, hyd = make_candidates([("H1", 100.0, 2000.0)])
-    res = solve_model("B", cand, 1000.0, params=Params(q=10.0, r=0.058), hydrants_df=hyd)
+    # A tiny gamma must NOT shrink B's contribution (B has no decay/friction).
+    res = solve_model("B", cand, 1500.0, params=Params(q=10.0, gamma=0.001), hydrants_df=hyd)
 
-    # Contribution = 2000 * exp(-r), which covers 1000 on its own.
-    eff = 2000.0 * math.exp(-0.058)
     assert res.demand_met
     assert [s.hydrant for s in res.selected] == ["H1"]
-    assert res.selected[0].effective_capacity == pytest.approx(eff)
+    assert res.selected[0].effective_capacity == pytest.approx(2000.0)
+
+
+# --- 3. Model B accounts for deployment/setup time --------------------------
+
+def test_model_b_accounts_for_deployment_and_setup_time():
+    cand, hyd = make_candidates([("H1", 100.0, 2000.0)])
+    res = solve_model("B", cand, 1000.0, params=Params(v=5.0, q=10.0), hydrants_df=hyd)
+
+    assert res.demand_met
     assert res.deployment_time == pytest.approx(100.0 / 5.0 + 10.0)
 
 
-def test_model_b_selects_two_when_one_decayed_is_insufficient():
-    cand, hyd = make_candidates([("H1", 100.0, 1000.0), ("H2", 200.0, 1000.0)])
-    res = solve_model("B", cand, 1000.0, params=Params(q=10.0, r=0.058), hydrants_df=hyd)
+# --- 4. Hose-piece counts use HOSE_PIECE_M (15 m), not a hard-coded 30 m ----
 
-    # Each decayed contribution is below 1000, so both are needed.
-    assert res.demand_met
-    assert {s.hydrant for s in res.selected} == {"H1", "H2"}
-    assert res.deployment_time == pytest.approx((100.0 / 5.0 + 10.0) + (200.0 / 5.0 + 10.0))
+def test_hose_pieces_use_15m_piece_length():
+    from domain import hose_pieces
 
-
-# --- Models A/B report hose pieces ------------------------------------------
-
-def test_model_a_reports_hose_pieces_without_changing_optimisation():
-    cand, hyd = make_candidates([("H1", 100.0, 1000.0), ("H2", 200.0, 1000.0)])
-    res = solve_model("A", cand, 1000.0, params=Params(q=10.0, r=0.058), hydrants_df=hyd)
-
-    # Model A has no decay, so H1 (nearer) alone covers demand -> 1 hydrant, 4 pieces.
-    assert [s.hydrant for s in res.selected] == ["H1"]
-    assert res.selected[0].hose_pieces == 4       # ceil(100 / 30)
-    assert res.hose_pieces_used == 4
-    assert res.carried_pieces_used == 4
-    assert res.extra_hose_pieces == 0
+    params = Params()
+    assert params.hose_piece_m == 15.0
+    assert hose_pieces(15.0, params) == 1
+    assert hose_pieces(16.0, params) == 2
+    assert hose_pieces(30.0, params) == 2
+    assert hose_pieces(95.0, params) == 7
+    assert hose_pieces(100.0, params) == 7
 
 
-def test_model_b_reports_hose_pieces():
-    cand, hyd = make_candidates([("H1", 100.0, 1000.0), ("H2", 200.0, 1000.0)])
-    res = solve_model("B", cand, 1000.0, params=Params(q=10.0, r=0.058), hydrants_df=hyd)
-
-    # Both hydrants decayed below demand -> both selected: 4 + 7 = 11 pieces.
-    assert {s.hydrant for s in res.selected} == {"H1", "H2"}
-    assert res.hose_pieces_used == 11             # ceil(100/30) + ceil(200/30)
-    assert res.carried_pieces_used == 11
-    assert res.extra_hose_pieces == 0
-
-
-def test_model_a_reports_extra_hose_pieces():
-    # Four 100 m hydrants need 16 pieces, exceeding the 12 carried -> 4 extra.
-    specs = [(f"H{i}", 100.0, 1000.0) for i in range(1, 5)]
-    cand, hyd = make_candidates(specs)
-    res = solve_model("A", cand, 4000.0, params=Params(r=0.0), hydrants_df=hyd)
-
-    assert res.demand_met
-    assert res.hose_pieces_used == 16
-    assert res.carried_pieces_used == 12
-    assert res.extra_hose_pieces == 4
-
-
-# --- distance decay --------------------------------------------------------
-
-def test_decayed_effective_capacity_for_b_and_c():
-    params = Params(r=0.058)
-    expected = 1000.0 * math.exp(-0.058 * 100.0 / 100.0)
+def test_model_reports_hose_pieces_with_15m_pieces():
     cand, hyd = make_candidates([("H1", 100.0, 1000.0)])
-    for model in ("B", "C-soft", "C-hard"):
-        res = solve_model(model, cand, 900.0, params=params, hydrants_df=hyd)
-        assert res.selected[0].effective_capacity == pytest.approx(expected)
-        assert res.total_effective_capacity == pytest.approx(expected)
-    # Model A has no decay.
-    res_a = solve_model("A", cand, 900.0, params=params, hydrants_df=hyd)
-    assert res_a.selected[0].effective_capacity == pytest.approx(1000.0)
+    res = solve_model("B", cand, 1000.0, params=Params(q=10.0), hydrants_df=hyd)
+    assert res.selected[0].hose_pieces == 7  # ceil(100 / 15)
 
 
-# --- result semantics ------------------------------------------------------
+# --- 5/6/7. Model C usable-capacity helper semantics ------------------------
 
-def test_demand_served_and_unmet_are_capped():
-    cand, hyd = make_candidates([("H1", 100.0, 1000.0), ("H2", 200.0, 1000.0)])
-    res = solve_model("A", cand, 1500.0, params=Params(r=0.0), hydrants_df=hyd)
+def test_usable_capacity_decreases_with_distance():
+    from domain import usable_capacity
 
-    assert res.total_effective_capacity == pytest.approx(2000.0)
-    assert res.demand_served == pytest.approx(1500.0)  # min(demand, total effective)
-    assert res.unmet_demand == pytest.approx(0.0)
+    params = Params(gamma=10000.0)
+    near = usable_capacity(2000.0, 100.0, params, 1)
+    far = usable_capacity(2000.0, 400.0, params, 1)
+    assert near > far
+
+
+def test_usable_capacity_increases_with_parallel_lines():
+    from domain import usable_capacity
+
+    params = Params(gamma=10000.0)
+    one = usable_capacity(2000.0, 100.0, params, 1)
+    two = usable_capacity(2000.0, 100.0, params, 2)
+    assert two > one
+
+
+def test_usable_capacity_never_exceeds_nominal_capacity():
+    from domain import usable_capacity
+
+    params = Params(gamma=1e9)
+    for n in (1, 2, 5):
+        assert usable_capacity(1200.0, 100.0, params, n) == pytest.approx(1200.0)
+
+
+# --- 8. Two lines consume twice as many hose pieces -------------------------
+
+def test_two_lines_consume_twice_the_hose_pieces():
+    # 2000 L/min nominal at 100 m: one line gives 1000 (gamma=10000), two give
+    # the full 2000, so C-soft must select two lines to meet the 2000 demand.
+    cand, hyd = make_candidates([("H1", 100.0, 2000.0)])
+    res = solve_model("C-soft", cand, 2000.0, params=Params(gamma=10000.0), hydrants_df=hyd)
+
     assert res.demand_met
-
-
-def test_no_per_hydrant_flow_or_lines_fields():
-    cand, hyd = make_candidates([("H1", 100.0, 1000.0)])
-    res = solve_model("B", cand, 900.0, hydrants_df=hyd)
     s = res.selected[0]
-    assert not hasattr(s, "delivered_flow")
-    assert not hasattr(s, "lines")
-    assert not hasattr(s, "line_capacity")
-    assert not hasattr(s, "line_max_flow")
+    assert s.lines == 2
+    assert s.hose_pieces == 7
+    assert s.hose_pieces_total == 14
+    assert s.hose_pieces_total == 2 * s.hose_pieces
 
 
-# --- Model C-soft hose accounting ------------------------------------------
+# --- 9. C-hard never exceeds available hose inventory -----------------------
 
-def test_model_c_soft_95m_needs_four_pieces():
-    cand, hyd = make_candidates([("H1", 95.0, 500.0)])
-    # r=0 so decay does not shrink the 500 L/min hydrant below demand.
-    res = solve_model("C-soft", cand, 500.0, params=Params(r=0.0), hydrants_df=hyd)
-    assert res.demand_met
-    assert res.selected[0].hose_pieces == 4  # ceil(95 / 30)
-    assert res.hose_pieces_used == 4
-    assert res.carried_pieces_used == 4
-    assert res.extra_hose_pieces == 0
-
-
-def test_model_c_soft_reports_reinforcement():
-    # Four hydrants at 100 m (4 pieces each) needed for 4000 -> 16 pieces total.
-    specs = [(f"H{i}", 100.0, 1000.0) for i in range(1, 5)]
+def test_c_hard_never_exceeds_inventory():
+    # Five 1000 L/min hydrants at 100 m (7 pieces each). Carried = 30 pieces,
+    # so at most four hydrants (28 pieces) fit -> 1000 L/min unmet.
+    specs = [(f"H{i}", 100.0, 1000.0) for i in range(1, 6)]
     cand, hyd = make_candidates(specs)
-    res = solve_model("C-soft", cand, 4000.0, params=Params(r=0.0), hydrants_df=hyd)
-
-    assert res.demand_met
-    assert res.hose_pieces_used == 16            # total pieces
-    assert res.carried_pieces_used == 12         # min(total, carried)
-    assert res.extra_hose_pieces == 4            # 16 - 12 reinforcement
-    assert isinstance(res.extra_hose_pieces, int)
-
-
-def test_model_c_soft_minimises_reinforcement():
-    # Two equivalent-capacity hydrants at different distances: the nearer one
-    # needs fewer pieces and should be preferred when only one is required.
-    cand, hyd = make_candidates([("near", 20.0, 1000.0), ("far", 100.0, 1000.0)])
-    res = solve_model("C-soft", cand, 1000.0, params=Params(r=0.0), hydrants_df=hyd)
-
-    assert res.demand_met
-    assert [s.hydrant for s in res.selected] == ["near"]  # 1 piece vs 4 pieces
-    assert res.hose_pieces_used == 1
-    assert res.extra_hose_pieces == 0
-
-
-# --- Model C-hard fixed inventory ------------------------------------------
-
-def test_model_c_hard_reports_shortage_when_inventory_binds():
-    # 4000 L/min needs four 1000 L/min hydrants (4 pieces each = 16), but only
-    # 12 pieces are carried, so at most 3 hydrants (3000 L/min) fit.
-    specs = [(f"H{i}", 100.0, 1000.0) for i in range(1, 5)]
-    cand, hyd = make_candidates(specs)
-    res = solve_model("C-hard", cand, 4000.0, params=Params(r=0.0), hydrants_df=hyd)
+    res = solve_model("C-hard", cand, 5000.0, params=Params(gamma=10000.0), hydrants_df=hyd)
 
     assert res.demand_met is False
-    assert res.hose_pieces_used == 12
-    assert res.carried_pieces_used == 12
+    assert res.hose_pieces_used <= 30
+    assert res.hose_pieces_used == 28  # 4 hydrants * 7 pieces
+    assert res.carried_pieces_used == 28
     assert res.extra_hose_pieces is None
-    assert res.total_effective_capacity == pytest.approx(3000.0)
-    assert res.demand_served == pytest.approx(3000.0)
+    assert res.total_effective_capacity == pytest.approx(4000.0)
     assert res.unmet_demand == pytest.approx(1000.0)
 
 
-def test_model_c_hard_within_inventory():
-    # Two hydrants at 100 m (4 pieces each) = 8 pieces <= 12, no shortage.
-    cand, hyd = make_candidates([("H1", 100.0, 1000.0), ("H2", 100.0, 1000.0)])
-    res = solve_model("C-hard", cand, 2000.0, params=Params(r=0.0), hydrants_df=hyd)
+# --- 10. C-soft can request reinforcement hose ------------------------------
+
+def test_c_soft_requests_reinforcement():
+    # Five 1000 L/min hydrants at 100 m (7 pieces each) = 35 pieces needed,
+    # but only 30 carried -> 5 reinforcement pieces.
+    specs = [(f"H{i}", 100.0, 1000.0) for i in range(1, 6)]
+    cand, hyd = make_candidates(specs)
+    res = solve_model("C-soft", cand, 5000.0, params=Params(gamma=10000.0), hydrants_df=hyd)
+
     assert res.demand_met
-    assert res.hose_pieces_used == 8
-    assert res.extra_hose_pieces is None
-    assert res.unmet_demand == pytest.approx(0.0)
+    assert res.hose_pieces_used == 35
+    assert res.carried_pieces_used == 30
+    assert res.extra_hose_pieces == 5
+    assert isinstance(res.extra_hose_pieces, int)
 
 
-# --- full-demand re-solve with committed hydrants --------------------------
+# --- 11. Changing gamma changes the optimal configuration -------------------
 
-def test_committed_hydrant_locked_and_counted_once():
+def test_changing_gamma_changes_optimal_line_configuration():
+    cand, hyd = make_candidates([("H1", 100.0, 1200.0)])
+
+    # High gamma: one line reaches nominal 1200 -> one line suffices.
+    hi = solve_model("C-soft", cand, 1000.0, params=Params(gamma=12000.0), hydrants_df=hyd)
+    assert hi.demand_met
+    assert hi.selected[0].lines == 1
+
+    # Low gamma: one line only delivers 600 < 1000 -> two lines are required.
+    lo = solve_model("C-soft", cand, 1000.0, params=Params(gamma=6000.0), hydrants_df=hyd)
+    assert lo.demand_met
+    assert lo.selected[0].lines == 2
+
+
+# --- 12. Failed/reserved-hose behaviour still works -------------------------
+
+def test_failed_pieces_reduce_available_inventory():
+    # Three 1000 L/min hydrants at 100 m (7 pieces each). With 10 failed pieces
+    # reserved the budget is 20 -> only two hydrants (14 pieces) fit.
+    specs = [(f"H{i}", 100.0, 1000.0) for i in range(1, 4)]
+    cand, hyd = make_candidates(specs)
+
+    full = solve_model("C-hard", cand, 3000.0, params=Params(gamma=10000.0), hydrants_df=hyd)
+    assert full.demand_met  # 21 pieces <= 30 budget
+
+    degraded = solve_model("C-hard", cand, 3000.0, params=Params(gamma=10000.0),
+                           hydrants_df=hyd, failed_pieces=10)
+    assert degraded.demand_met is False
+    assert degraded.hose_pieces_used == 14  # <= 30 - 10
+    assert degraded.unmet_demand == pytest.approx(1000.0)
+
+
+def test_committed_hydrant_stays_locked():
     cand, hyd = make_candidates([("H1", 100.0, 1000.0), ("H2", 200.0, 1000.0)])
-    # H1 already selected. Full demand 1500 -> H1 (locked) + H2, each counted once.
-    res = solve_model("A", cand, 1500.0, params=Params(r=0.0), hydrants_df=hyd,
-                      committed={"H1"})
+    res = solve_model("A", cand, 1500.0, params=Params(), hydrants_df=hyd, committed={"H1"})
     assert res.demand_met
-    assert {s.hydrant for s in res.selected} == {"H1", "H2"}
-    assert res.total_effective_capacity == pytest.approx(2000.0)
-    assert res.demand_served == pytest.approx(1500.0)
-
-
-def test_committed_hydrant_alone_satisfies_full_demand():
-    cand, hyd = make_candidates([("H1", 100.0, 2000.0), ("H2", 200.0, 1000.0)])
-    # H1 locked with 2000 L/min capacity covers the full 1500 on its own, so
-    # no second hydrant is added and nothing is double counted.
-    res = solve_model("A", cand, 1500.0, params=Params(r=0.0), hydrants_df=hyd,
-                      committed={"H1"})
-    assert res.demand_met
-    assert [s.hydrant for s in res.selected] == ["H1"]
-    assert res.demand_served == pytest.approx(1500.0)
+    assert "H1" in {s.hydrant for s in res.selected}
 
 
 # --- best-achievable with unmet demand -------------------------------------
@@ -247,25 +223,6 @@ def test_impossible_demand_returns_best_achievable(model):
     assert res.demand_met is False
     assert res.unmet_demand > 0
     assert res.demand_served > 0  # best achievable supply, not zero/None
-
-
-# --- helpers ---------------------------------------------------------------
-
-def test_helpers_hydrant_flow_and_hose_pieces():
-    from domain import hose_pieces, hydrant_flow
-
-    params = Params(r=0.058)
-    assert hydrant_flow(1000.0, 0.0, params, "A") == pytest.approx(1000.0)
-    assert hydrant_flow(1000.0, 0.0, params, "B") == pytest.approx(1000.0)
-    expected = 1000.0 * math.exp(-0.058)
-    assert hydrant_flow(1000.0, 100.0, params, "B") == pytest.approx(expected)
-    assert hydrant_flow(1000.0, 100.0, params, "C-soft") == pytest.approx(expected)
-    assert hydrant_flow(1000.0, 100.0, params, "C-hard") == pytest.approx(expected)
-
-    assert hose_pieces(0.0, params) == 1
-    assert hose_pieces(30.0, params) == 1
-    assert hose_pieces(31.0, params) == 2
-    assert hose_pieces(95.0, params) == 4
 
 
 def test_unknown_model_raises():

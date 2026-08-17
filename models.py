@@ -6,8 +6,9 @@ now lives in ``domain`` (types/constants) and ``solver`` (optimisation).
 
 from domain import (
     CARRIED_PIECES,
+    DEFAULT_GAMMA,
+    DEFAULT_MAX_LINES_PER_HYDRANT,
     DEFAULT_Q,
-    DEFAULT_R,
     DEFAULT_V,
     FLOW_TOL,
     HOSE_PIECE_M,
@@ -20,14 +21,19 @@ from domain import (
     ModelResult,
     Params,
     UpdateFacts,
+    deployment_time,
     flow_tolerance,
+    hose_pieces,
+    max_usable_capacity,
+    usable_capacity,
 )
 from solver import build_recommendation, solve_model
 
 __all__ = [
     "CARRIED_PIECES",
+    "DEFAULT_GAMMA",
+    "DEFAULT_MAX_LINES_PER_HYDRANT",
     "DEFAULT_Q",
-    "DEFAULT_R",
     "DEFAULT_V",
     "FLOW_TOL",
     "HOSE_PIECE_M",
@@ -40,7 +46,11 @@ __all__ = [
     "ModelResult",
     "Params",
     "UpdateFacts",
+    "deployment_time",
     "flow_tolerance",
+    "hose_pieces",
+    "max_usable_capacity",
+    "usable_capacity",
     "build_recommendation",
     "solve_model",
 ]
