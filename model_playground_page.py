@@ -4,7 +4,14 @@ import pandas as pd
 import streamlit as st
 
 from data import get_hydrants
-from domain import MODEL_OPTION_LABELS, Params
+from domain import (
+    CARRIED_PIECES,
+    DEFAULT_GAMMA,
+    DEFAULT_MAX_LINES_PER_HYDRANT,
+    HOSE_PIECE_M,
+    MODEL_OPTION_LABELS,
+    Params,
+)
 from graph_cache import get_graph
 from routing import build_candidates
 from solver import solve_model
@@ -27,8 +34,17 @@ with st.sidebar:
 
     st.header("Model parameters")
     q = st.number_input("Deployment time (q, time units)", key="q", min_value=0.0, value=10.0, step=0.5)
-    r = st.number_input("Decay rate (r, per 100 m)", key="r", min_value=0.0, value=0.058, step=0.001, format="%.3f")
     v = st.number_input("Hose deployment rate (v)", key="v", min_value=0.01, value=5.0, step=0.1)
+    hose_piece_m = st.number_input("Hose piece length (m)", key="hose_piece_m",
+                                   min_value=1.0, value=HOSE_PIECE_M, step=1.0)
+    carried_pieces = st.number_input("Carried hose pieces", key="carried_pieces",
+                                     min_value=1, value=CARRIED_PIECES, step=1)
+    max_lines = st.number_input("Max parallel lines per hydrant", key="max_lines",
+                                min_value=1, value=DEFAULT_MAX_LINES_PER_HYDRANT, step=1)
+    gamma = st.number_input("Hydraulic calibration gamma (L/min·√m)", key="gamma",
+                            min_value=0.0, value=DEFAULT_GAMMA, step=100.0, format="%.1f")
+    st.caption("gamma is an experimental hydraulic calibration parameter — "
+               "not physically calibrated.")
     planning_reserve = st.number_input("Planning reserve (%)", key="planning_reserve",
                                        min_value=0.0, value=50.0, step=5.0)
     st.caption("Prototype assumption — not an operational firefighting standard.")
@@ -60,7 +76,8 @@ if not location_ok:
     st.info("Enter a fire location (latitude and longitude).")
 
 if st.button("Run model", key="run_btn", disabled=not location_ok):
-    params = Params(v=v, q=q, r=r)
+    params = Params(v=v, q=q, gamma=gamma, hose_piece_m=hose_piece_m,
+                    carried_pieces=carried_pieces, max_lines_per_hydrant=max_lines)
     demand = planning_target_flow(flow, planning_reserve)
 
     method, graph = distance_method, None
@@ -73,7 +90,7 @@ if st.button("Run model", key="run_btn", disabled=not location_ok):
 
     radius, candidates, sufficient = build_candidates(
         lat, lon, demand, hydrants, start_radius, radius_step, max_radius,
-        params, method, graph,
+        params, method, model, graph,
     )
     result = solve_model(model, candidates, demand, params, hydrants,
                          radius=radius, distance_method=method)
@@ -120,8 +137,10 @@ else:
                 "Hydrant": s.hydrant,
                 "Distance (m)": round(s.distance_m, 1),
                 "Nominal cap (L/min)": int(s.nominal_capacity),
+                "Lines": s.lines,
                 "Effective cap (L/min)": round(s.effective_capacity, 0),
-                "Hose pieces": s.hose_pieces if s.hose_pieces is not None else "n/a",
+                "Hose pieces/line": s.hose_pieces if s.hose_pieces is not None else "n/a",
+                "Total pieces": s.hose_pieces_total if s.hose_pieces_total is not None else "n/a",
             }
             for s in result.selected
         ]
@@ -140,7 +159,7 @@ else:
                      f"**{result.extra_hose_pieces} extra** (reinforcement), "
                      f"**{result.hose_pieces_used} total pieces**")
         elif result.model == "C-hard":
-            st.write(f"Hose: **{result.hose_pieces_used} of 12 pieces used**")
+            st.write(f"Hose: **{result.hose_pieces_used} of {carried_pieces} pieces used**")
     else:
         st.write("Hose inventory: not applicable")
     st.write(f"Deployment time: **{result.deployment_time:.2f} time units**")

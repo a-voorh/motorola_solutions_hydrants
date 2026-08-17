@@ -70,13 +70,13 @@ def analyse_incident(request, hydrants_df, model="B", params=None, *,
         }
         event = {"kind": "initial", "message": transcript, "flow": None,
                  "hydrant": None, "retained": None, "added": None,
-                 "summary": _plan_summary_text(plan, params.r)}
+                 "summary": _plan_summary_text(plan)}
         return plan, event, []
 
     demand = planning_target_flow(flow, reserve)
     radius, candidates, sufficient = build_candidates(
         lat, lon, demand, hydrants_df, start_radius, radius_step, max_radius,
-        params, distance_method, graph,
+        params, distance_method, model, graph,
     )
     result = solve_model(model, candidates, demand, params, hydrants_df,
                          radius=radius, distance_method=distance_method)
@@ -90,7 +90,7 @@ def analyse_incident(request, hydrants_df, model="B", params=None, *,
 
     event = {"kind": "initial", "message": transcript, "flow": flow,
              "hydrant": None, "retained": None, "added": None,
-             "summary": _plan_summary_text(plan, params.r)}
+             "summary": _plan_summary_text(plan)}
     return plan, event, comparison
 
 
@@ -182,7 +182,8 @@ def apply_update(plan, message, hydrants_df, model=None, params=None,
     pool = hydrants_df[~hydrants_df["Hydrant"].isin(new["unavailable"])]
     radius, candidates, sufficient = build_candidates(
         new["location"][0], new["location"][1], demand, pool,
-        start_radius, radius_step, max_radius, params, distance_method, graph,
+        start_radius, radius_step, max_radius, params, distance_method,
+        model_name, graph,
     )
     candidates = _ensure_committed(candidates, committed, res)
 
@@ -241,6 +242,6 @@ def process_update(plan, message, hydrants_df, model=None, params=None,
         "retained": retained,
         "added": added,
         "new_reinforcement_pieces": new_reinforcement_pieces,
-        "summary": _plan_summary_text(new, new["params"].r),
+        "summary": _plan_summary_text(new),
     }
     return new, event, None

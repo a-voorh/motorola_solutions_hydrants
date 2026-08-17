@@ -40,8 +40,10 @@ def selected_rows(result):
             "Longitude": s.longitude,
             "Distance (m)": round(s.distance_m, 1),
             "Nominal cap (L/min)": int(s.nominal_capacity),
+            "Lines": s.lines,
             "Effective cap (L/min)": round(s.effective_capacity, 0),
-            "Hose pieces": s.hose_pieces if s.hose_pieces is not None else "n/a",
+            "Hose pieces/line": s.hose_pieces if s.hose_pieces is not None else "n/a",
+            "Total pieces": s.hose_pieces_total if s.hose_pieces_total is not None else "n/a",
         })
     return pd.DataFrame(rows)
 

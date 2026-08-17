@@ -18,8 +18,9 @@ from typing import Any, TypedDict
 
 from domain.constants import (
     CARRIED_PIECES,
+    DEFAULT_GAMMA,
+    DEFAULT_MAX_LINES_PER_HYDRANT,
     DEFAULT_Q,
-    DEFAULT_R,
     DEFAULT_V,
     HOSE_PIECE_M,
 )
@@ -27,13 +28,19 @@ from domain.constants import (
 
 @dataclass(frozen=True)
 class Params:
-    """Model parameters shared across A/B/C-soft/C-hard (where applicable)."""
+    """Model parameters shared across A/B/C-soft/C-hard (where applicable).
+
+    ``gamma`` is an experimental hydraulic calibration parameter (NOT physically
+    calibrated); ``max_lines_per_hydrant`` is the prototype-only configuration
+    bound on parallel hose lines (not a physical limit).
+    """
 
     v: float = DEFAULT_V
     q: float = DEFAULT_Q
-    r: float = DEFAULT_R
+    gamma: float = DEFAULT_GAMMA
     hose_piece_m: float = HOSE_PIECE_M
     carried_pieces: int = CARRIED_PIECES
+    max_lines_per_hydrant: int = DEFAULT_MAX_LINES_PER_HYDRANT
 
 
 @dataclass(frozen=True)
@@ -78,15 +85,22 @@ class DispatcherPreference:
 
 @dataclass
 class HydrantLine:
-    """One selected hydrant's contribution to a plan (single connection)."""
+    """One selected hydrant's contribution to a plan.
+
+    ``lines`` is the number of parallel hose lines selected (1 for A/B);
+    ``hose_pieces`` is the whole pieces required for ONE line; ``hose_pieces_total``
+    is the total across all selected lines (``lines * hose_pieces``).
+    """
 
     hydrant: str
     latitude: float
     longitude: float
     distance_m: float
     nominal_capacity: float
-    effective_capacity: float  # modelled capacity at this distance (decay if applicable)
-    hose_pieces: int | None  # whole 30 m pieces; None only when no hydrants selected
+    effective_capacity: float  # usable capacity under the current model/gamma
+    hose_pieces: int | None  # pieces for ONE line; None only when no hydrants selected
+    lines: int = 1
+    hose_pieces_total: int | None = None  # lines * hose_pieces
 
 
 @dataclass

@@ -13,7 +13,7 @@ from domain import (
     DEFAULT_RADIUS_STEP,
     DEFAULT_START_RADIUS,
     Params,
-    hydrant_flow,
+    max_usable_capacity,
 )
 
 from routing.geodesic import nearby_hydrants_geodesic
@@ -32,16 +32,21 @@ def _nearby(lat, lon, radius_m, hydrants_df, distance_method="gis", max_results=
     return nearby_hydrants(lat, lon, radius_m, hydrants_df, max_results=max_results)
 
 
-def _max_deliverable_sum(candidates, params):
-    """Sum of candidate effective capacity (single connection, distance-decayed).
+def _max_deliverable_sum(candidates, params, model="B"):
+    """Sum of candidate capacity used as the radius-sweep feasibility bound.
 
-    Uses ``hydrant_flow`` with the decayed (B/C) contribution so this
-    feasibility test can never diverge from the solver.
+    For Models A / B the deliverable is nominal capacity. For the friction-limited
+    C models it is each hydrant's maximum usable capacity over the allowed line
+    configurations (``max_n a[i, n]``), so farther hydrants are not prematurely
+    excluded. This is an upper bound: with a tight hose inventory not every
+    hydrant can run its maximum number of lines simultaneously.
     """
-    total = 0.0
-    for cap, d in zip(candidates["Capacity_L_min"], candidates["Distance_m"]):
-        total += hydrant_flow(cap, d, params, model="B")
-    return total
+    if model in ("C-soft", "C-hard"):
+        total = 0.0
+        for cap, d in zip(candidates["Capacity_L_min"], candidates["Distance_m"]):
+            total += max_usable_capacity(cap, d, params)
+        return total
+    return float(candidates["Capacity_L_min"].sum())
 
 
 def build_candidates(lat, lon, demand, hydrants_df,
@@ -50,12 +55,13 @@ def build_candidates(lat, lon, demand, hydrants_df,
                      max_radius=DEFAULT_MAX_RADIUS,
                      params=None,
                      distance_method="gis",
+                     model="B",
                      graph=None):
     """Sweep radii and return ``(radius, candidates, sufficient)``.
 
-    Finds the smallest radius whose sum of candidate effective capacity
-    (single connection, distance-decayed) covers ``demand``. If none does
-    within ``max_radius``, returns the max-radius candidate set with
+    Finds the smallest radius whose sum of candidate capacity (per ``model``:
+    nominal for A/B, max-usable for C) covers ``demand``. If none does within
+    ``max_radius``, returns the max-radius candidate set with
     ``sufficient=False`` (so the solver can still return a best-achievable
     plan with positive unmet demand).
     """
@@ -70,7 +76,7 @@ def build_candidates(lat, lon, demand, hydrants_df,
         radius = start_radius
         while radius <= max_radius:
             within = full[full["Distance_m"] <= radius]
-            if _max_deliverable_sum(within, params) >= demand:
+            if _max_deliverable_sum(within, params, model) >= demand:
                 return radius, within, True
             radius += radius_step
         at_max = full[full["Distance_m"] <= max_radius]
@@ -79,7 +85,7 @@ def build_candidates(lat, lon, demand, hydrants_df,
     radius = start_radius
     while radius <= max_radius:
         near = _nearby(lat, lon, radius, hydrants_df, distance_method)
-        if _max_deliverable_sum(near, params) >= demand:
+        if _max_deliverable_sum(near, params, model) >= demand:
             return radius, near, True
         radius += radius_step
     at_max = _nearby(lat, lon, max_radius, hydrants_df, distance_method)
