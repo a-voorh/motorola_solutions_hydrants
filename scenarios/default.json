@@ -1,0 +1,38 @@
+{
+  "id": "default",
+  "title": "Standard residential fire (demo)",
+  "messages": [
+    {
+      "timestamp": "2026-08-16T09:14:32",
+      "speaker": "Dispatch",
+      "text": "Unit 2, confirm your status at the staging area.",
+      "offset_seconds": 0,
+      "location": null,
+      "kind": "chatter"
+    },
+    {
+      "timestamp": "2026-08-16T09:15:02",
+      "speaker": "Incident commander",
+      "text": "We need 600 L/min at this location.",
+      "offset_seconds": 30,
+      "location": [55.664178, 12.607972],
+      "kind": "request"
+    },
+    {
+      "timestamp": "2026-08-16T09:16:32",
+      "speaker": "Pumper 1",
+      "text": "H0479 is out of service.",
+      "offset_seconds": 120,
+      "location": [55.664178, 12.607972],
+      "kind": "update"
+    },
+    {
+      "timestamp": "2026-08-16T09:17:32",
+      "speaker": "Unit 2",
+      "text": "Copy that, standing by.",
+      "offset_seconds": 180,
+      "location": null,
+      "kind": "chatter"
+    }
+  ]
+}

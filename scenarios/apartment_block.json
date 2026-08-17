@@ -1,0 +1,38 @@
+{
+  "id": "apartment_block",
+  "title": "Apartment block fire (hydrant failure)",
+  "messages": [
+    {
+      "timestamp": "2026-08-16T14:21:05",
+      "speaker": "Incident commander",
+      "text": "We need 900 L/min at this location.",
+      "offset_seconds": 0,
+      "location": [55.690764, 12.560332],
+      "kind": "request"
+    },
+    {
+      "timestamp": "2026-08-16T14:21:50",
+      "speaker": "Dispatch",
+      "text": "Smoke visible from the upper floors.",
+      "offset_seconds": 45,
+      "location": null,
+      "kind": "chatter"
+    },
+    {
+      "timestamp": "2026-08-16T14:24:30",
+      "speaker": "Pumper 1",
+      "text": "H0484 is out of service.",
+      "offset_seconds": 205,
+      "location": [55.690764, 12.560332],
+      "kind": "update"
+    },
+    {
+      "timestamp": "2026-08-16T14:25:10",
+      "speaker": "Unit 2",
+      "text": "Evacuation is complete.",
+      "offset_seconds": 245,
+      "location": null,
+      "kind": "chatter"
+    }
+  ]
+}

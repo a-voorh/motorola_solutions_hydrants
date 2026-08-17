@@ -1,0 +1,70 @@
+"""Domain layer: shared constants and typed data structures.
+
+No Streamlit, routing, or solver-library dependencies. See ``constants.py``
+and ``types.py``.
+"""
+
+from domain.constants import (
+    CARRIED_PIECES,
+    DEFAULT_MAX_RADIUS,
+    DEFAULT_PLANNING_RESERVE_PERCENT,
+    DEFAULT_Q,
+    DEFAULT_R,
+    DEFAULT_RADIUS_STEP,
+    DEFAULT_START_RADIUS,
+    DEFAULT_V,
+    FLOW_TOL,
+    HOSE_PIECE_M,
+    MODEL_LABELS,
+    MODEL_NAMES,
+    MODEL_OPTION_LABELS,
+    RECOVER_FAILED_HYDRANT_HOSE,
+    flow_tolerance,
+)
+from domain.capacity import hose_pieces, hydrant_flow
+from domain.types import (
+    AvailabilityEvent,
+    DispatcherPreference,
+    FlowStatus,
+    HydrantCandidate,
+    HydrantLine,
+    IncidentRequest,
+    ModelResult,
+    Params,
+    Plan,
+    Scenario,
+    ScenarioMessage,
+    UpdateFacts,
+)
+
+__all__ = [
+    "CARRIED_PIECES",
+    "DEFAULT_MAX_RADIUS",
+    "DEFAULT_PLANNING_RESERVE_PERCENT",
+    "DEFAULT_Q",
+    "DEFAULT_R",
+    "DEFAULT_RADIUS_STEP",
+    "DEFAULT_START_RADIUS",
+    "DEFAULT_V",
+    "FLOW_TOL",
+    "HOSE_PIECE_M",
+    "MODEL_LABELS",
+    "MODEL_NAMES",
+    "MODEL_OPTION_LABELS",
+    "RECOVER_FAILED_HYDRANT_HOSE",
+    "flow_tolerance",
+    "hydrant_flow",
+    "hose_pieces",
+    "AvailabilityEvent",
+    "DispatcherPreference",
+    "FlowStatus",
+    "HydrantCandidate",
+    "HydrantLine",
+    "IncidentRequest",
+    "ModelResult",
+    "Params",
+    "Plan",
+    "Scenario",
+    "ScenarioMessage",
+    "UpdateFacts",
+]

@@ -1,0 +1,158 @@
+"""Model playground: vary parameters and inspect any model's output."""
+
+import pandas as pd
+import streamlit as st
+
+from data import get_hydrants
+from domain import MODEL_OPTION_LABELS, Params
+from graph_cache import get_graph
+from routing import build_candidates
+from solver import solve_model
+from ui.map import render_hydrant_map
+from workflow import flow_status_lines, planning_target_flow, summarize_flow
+
+st.title("Model playground")
+
+hydrants = get_hydrants()
+
+with st.sidebar:
+    st.header("Model")
+    model = st.selectbox(
+        "Water-supply optimization model",
+        options=list(MODEL_OPTION_LABELS),
+        format_func=lambda m: MODEL_OPTION_LABELS[m],
+        index=1,  # default to Model B (the current/decayed setup-time model)
+        key="model",
+    )
+
+    st.header("Model parameters")
+    q = st.number_input("Deployment time (q, time units)", key="q", min_value=0.0, value=10.0, step=0.5)
+    r = st.number_input("Decay rate (r, per 100 m)", key="r", min_value=0.0, value=0.058, step=0.001, format="%.3f")
+    v = st.number_input("Hose deployment rate (v)", key="v", min_value=0.01, value=5.0, step=0.1)
+    planning_reserve = st.number_input("Planning reserve (%)", key="planning_reserve",
+                                       min_value=0.0, value=50.0, step=5.0)
+    st.caption("Prototype assumption — not an operational firefighting standard.")
+
+    st.header("Search parameters")
+    radius_step = st.number_input("Radius step (m)", key="radius_step", min_value=10, value=30, step=10)
+    start_radius = st.number_input("Starting radius (m)", key="start_radius", min_value=0, value=30, step=10)
+    max_radius = st.number_input("Maximum radius (m)", key="fire_radius", min_value=start_radius, value=1500, step=10)
+
+col1, col2, col3 = st.columns(3)
+with col1:
+    lat = st.number_input("Fire latitude", key="fire_lat", value=None, format="%.6f")
+with col2:
+    lon = st.number_input("Fire longitude", key="fire_lon", value=None, format="%.6f")
+with col3:
+    flow = st.number_input("Required flow (L/min)", value=4000, min_value=0)
+
+distance_method = st.radio(
+    "Distance method",
+    options=["network", "gis", "manhattan"],
+    format_func=lambda m: {"network": "Street network", "gis": "GIS (geodesic)", "manhattan": "Manhattan"}[m],
+    index=0,
+    key="distance_method",
+    horizontal=True,
+)
+
+location_ok = lat is not None and lon is not None
+if not location_ok:
+    st.info("Enter a fire location (latitude and longitude).")
+
+if st.button("Run model", key="run_btn", disabled=not location_ok):
+    params = Params(v=v, q=q, r=r)
+    demand = planning_target_flow(flow, planning_reserve)
+
+    method, graph = distance_method, None
+    if distance_method == "network":
+        try:
+            graph = get_graph(lat, lon, max_radius + 200)
+        except Exception as e:
+            st.warning(f"Street-network routing unavailable ({e}). Falling back to GIS.")
+            method = "gis"
+
+    radius, candidates, sufficient = build_candidates(
+        lat, lon, demand, hydrants, start_radius, radius_step, max_radius,
+        params, method, graph,
+    )
+    result = solve_model(model, candidates, demand, params, hydrants,
+                         radius=radius, distance_method=method)
+
+    locs = hydrants.set_index("Hydrant")[["Latitude", "Longitude"]]
+    st.session_state["run_fire"] = (lat, lon)
+    st.session_state["run_method"] = method
+    st.session_state["run_graph"] = graph
+    st.session_state["run_radius"] = radius
+    st.session_state["run_sufficient"] = sufficient
+    st.session_state["run_candidates"] = candidates.join(locs)
+    st.session_state["run_result"] = result
+    st.session_state["run_demand"] = demand
+
+
+result = st.session_state.get("run_result")
+if result is None:
+    st.info("Enter a fire location and click 'Run model' to see the result and map.")
+else:
+    demand = st.session_state["run_demand"]
+    radius = st.session_state["run_radius"]
+    method = st.session_state["run_method"]
+    sufficient = st.session_state["run_sufficient"]
+    st.write(f"Candidate set radius: **{radius} m** (sufficient: {sufficient})")
+
+    flow_summary = summarize_flow(flow, planning_reserve, result.demand_served)
+    st.write(
+        f"Stated minimum request **{flow_summary['stated_minimum_flow_l_min']:g} L/min**, "
+        f"planning reserve **{flow_summary['planning_reserve_l_min']:g} L/min "
+        f"({flow_summary['planning_reserve_percent']:g}%)**, "
+        f"planning target **{flow_summary['planning_target_flow_l_min']:g} L/min**."
+    )
+    for line in flow_status_lines(flow_summary):
+        if "not met" in line:
+            st.error(line)
+        elif "shortfall" in line:
+            st.warning(line)
+        else:
+            st.success(line)
+
+    if result.selected:
+        rows = [
+            {
+                "Hydrant": s.hydrant,
+                "Distance (m)": round(s.distance_m, 1),
+                "Nominal cap (L/min)": int(s.nominal_capacity),
+                "Effective cap (L/min)": round(s.effective_capacity, 0),
+                "Hose pieces": s.hose_pieces if s.hose_pieces is not None else "n/a",
+            }
+            for s in result.selected
+        ]
+        st.subheader("Selected hydrants")
+        st.dataframe(pd.DataFrame(rows))
+    else:
+        st.write("No hydrants selected.")
+
+    st.write(f"Demand served: **{result.demand_served:g} L/min**")
+    st.write(f"Unmet demand: **{result.unmet_demand:g} L/min**")
+    st.write(f"Total nominal capacity: **{result.total_nominal_capacity:g} L/min**")
+    st.write(f"Total effective capacity: **{result.total_effective_capacity:g} L/min**")
+    if result.hose_pieces_used is not None:
+        if result.model in ("A", "B", "C-soft"):
+            st.write(f"Hose: **{result.carried_pieces_used} carried pieces used**, "
+                     f"**{result.extra_hose_pieces} extra** (reinforcement), "
+                     f"**{result.hose_pieces_used} total pieces**")
+        elif result.model == "C-hard":
+            st.write(f"Hose: **{result.hose_pieces_used} of 12 pieces used**")
+    else:
+        st.write("Hose inventory: not applicable")
+    st.write(f"Deployment time: **{result.deployment_time:.2f} time units**")
+    st.info(result.recommendation)
+
+    st.subheader("Map")
+    fire_lat, fire_lon = st.session_state["run_fire"]
+    render_hydrant_map(
+        fire_lat, fire_lon,
+        st.session_state["run_candidates"],
+        result.selected,
+        radius,
+        graph=st.session_state.get("run_graph"),
+        street_routes=(method == "network"),
+    )

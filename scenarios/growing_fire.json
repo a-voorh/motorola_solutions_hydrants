@@ -1,0 +1,38 @@
+{
+  "id": "growing_fire",
+  "title": "Growing fire (demand increase)",
+  "messages": [
+    {
+      "timestamp": "2026-08-16T16:05:20",
+      "speaker": "Incident commander",
+      "text": "We need 500 L/min at this location.",
+      "offset_seconds": 0,
+      "location": [55.664178, 12.607972],
+      "kind": "request"
+    },
+    {
+      "timestamp": "2026-08-16T16:06:00",
+      "speaker": "Dispatch",
+      "text": "Copy, water supply is being established.",
+      "offset_seconds": 40,
+      "location": null,
+      "kind": "chatter"
+    },
+    {
+      "timestamp": "2026-08-16T16:09:15",
+      "speaker": "Incident commander",
+      "text": "Increase demand to 1500 L/min.",
+      "offset_seconds": 235,
+      "location": [55.664178, 12.607972],
+      "kind": "update"
+    },
+    {
+      "timestamp": "2026-08-16T16:10:05",
+      "speaker": "Pumper 1",
+      "text": "Additional lines laid, supply increasing.",
+      "offset_seconds": 285,
+      "location": null,
+      "kind": "chatter"
+    }
+  ]
+}
