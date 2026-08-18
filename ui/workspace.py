@@ -177,6 +177,8 @@ def propose_from_message(message, hydrants_df, location=None):
     proposed = None
     comparison = None
     event = None
+    if api_flow <=0:
+        api_flow = 100
     # 3. Handle analysis triggers based on parsed water demand and location
     if api_flow > 0:
         fb = _fallback_location()
