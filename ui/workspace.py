@@ -201,7 +201,7 @@ def propose_from_message(message, hydrants_df, location=None):
         st.session_state["proposed_plan"] = proposed
         st.session_state["proposed_comparison"] = comparison
         st.session_state["proposed_event"] = event
-    st.session_state["awaiting_decision"] = proposed is not None and not covered
+    st.session_state["awaiting_decision"] = proposed is not None
 
     _append_live("assistant", summary)
     print('Summary')
