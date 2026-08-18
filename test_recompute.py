@@ -106,3 +106,30 @@ def test_recompute_extends_search_radius():
     assert err1 is None
     assert "H2" in ext["selected"]
     assert ext["result"].demand_met
+
+
+def test_recompute_requires_hydrant():
+    # H1 alone covers the demand; forcing H2 (tiny capacity) must still include it.
+    dlat = 30.0 / 111320.0
+    hydrants = pd.DataFrame({
+        "Hydrant": ["H1", "H2"],
+        "Latitude": [55.6, 55.6 + dlat],
+        "Longitude": [12.5, 12.5],
+        "Capacity_L_min": [1000.0, 100.0],
+        "Available": [True, True],
+    })
+
+    request = IncidentRequest(transcript="We need 1000 L/min",
+                              location=(55.6, 12.5), planning_reserve_percent=0.0)
+    plan, _event, _cmp = analyse_incident(
+        request, hydrants, "B", Params(),
+        max_radius=1500, distance_method="manhattan",
+    )
+    assert set(plan["selected"]) == {"H1"}
+
+    new = recompute_plan(plan, hydrants, "B", require={"H2"},
+                         distance_method="manhattan", max_radius=1500,
+                         radius_extension=0)
+    assert "H2" in new["selected"]      # forced in
+    assert "H1" in new["selected"]      # still needed to meet demand
+    assert new["result"].demand_met

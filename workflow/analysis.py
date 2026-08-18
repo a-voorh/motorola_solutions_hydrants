@@ -6,6 +6,8 @@ This module depends on interfaces (``domain``, ``extraction``, ``solver``,
 
 import copy
 
+import pandas as pd
+
 from domain import (
     DEFAULT_MAX_RADIUS,
     DEFAULT_PLANNING_RESERVE_PERCENT,
@@ -60,7 +62,6 @@ def analyse_incident(request, hydrants_df, model="B", params=None, *,
             "result": None,
             "selected": selected,
             "unavailable": [],
-            "declined": [],
             "objective": _plan_objective(selected, params.v, params.q) if selected else None,
             "radius": None,
             "insufficient": False,
@@ -117,6 +118,7 @@ def run_initial_analysis(lat, lon, transcript, hydrants_df, model="B",
 
 def recompute_plan(plan, hydrants_df, model=None, params=None, *,
                    exclude=(),
+                   require=(),
                    start_radius=DEFAULT_START_RADIUS,
                    radius_step=DEFAULT_RADIUS_STEP,
                    max_radius=DEFAULT_MAX_RADIUS,
@@ -125,10 +127,11 @@ def recompute_plan(plan, hydrants_df, model=None, params=None, *,
                    graph=None):
     """Recompute a demand-known plan -> new plan dict.
 
-    ``exclude`` lists hydrants to drop from the candidate pool (e.g. dispatcher
-    declines); they are merged into the plan's ``declined`` set so they stay
-    excluded on later recomputes. ``radius_extension`` is added to ``max_radius``
-    so recomputes may search farther than the initial analysis did.
+    ``exclude`` lists hydrants to drop from the candidate pool for this run;
+    ``require`` lists hydrants to lock into the solution (hard requirement, in
+    addition to the already-deployed survivors). Both are one-shot and are not
+    persisted on the plan. ``radius_extension`` is added to ``max_radius`` so
+    recomputes may search farther than the initial analysis did.
     """
     new = copy.deepcopy(plan)
     model_name = model or plan.get("model", "B")
@@ -142,17 +145,16 @@ def recompute_plan(plan, hydrants_df, model=None, params=None, *,
     if demand is None:
         return new
 
-    declined = set(new.get("declined", [])) | set(exclude)
-    new["declined"] = sorted(declined)
+    excluded = set(exclude or ())
+    required = set(require or ())
     unavailable = new.get("unavailable", [])
 
     res = plan.get("result")
     if res is None:
-        committed = set()
+        survivors = set()
         total_pieces = 0
     else:
-        survivors = [s for s in res.selected if s.hydrant not in unavailable]
-        committed = {s.hydrant for s in survivors}
+        survivors = {s.hydrant for s in res.selected if s.hydrant not in unavailable}
         total_pieces = plan.get("committed_pieces") or 0
 
     # Hose still committed from failed hydrants (kept while not recoverable).
@@ -165,14 +167,27 @@ def recompute_plan(plan, hydrants_df, model=None, params=None, *,
     )
     failed_pieces = max(0, total_pieces - active_pieces)
 
-    pool = hydrants_df[~hydrants_df["Hydrant"].isin(set(unavailable) | declined)]
+    pool = hydrants_df[~hydrants_df["Hydrant"].isin(set(unavailable) | excluded)]
     radius, candidates, sufficient = build_candidates(
         new["location"][0], new["location"][1], demand, pool,
         start_radius, radius_step, max_radius + radius_extension, params,
         distance_method, model_name, graph,
     )
-    candidates = _ensure_committed(candidates, committed, res)
+    candidates = _ensure_committed(candidates, survivors, res)
 
+    # Required hydrants must be in the candidate set even if the demand-covering
+    # radius would otherwise drop them (they sit within the extended radius).
+    missing = required - set(candidates.index)
+    if missing:
+        full = _nearby(new["location"][0], new["location"][1],
+                       max_radius + radius_extension, pool, distance_method,
+                       graph=graph)
+        extra = full[full.index.isin(missing)]
+        if len(extra):
+            candidates = pd.concat([candidates, extra])
+            radius = max(radius, float(extra["Distance_m"].max()))
+
+    committed = survivors | required
     result = solve_model(model_name, candidates, demand, params, hydrants_df,
                          committed=committed,
                          failed_pieces=failed_pieces,
@@ -182,7 +197,7 @@ def recompute_plan(plan, hydrants_df, model=None, params=None, *,
                                   result.demand_served)
     new.update(_plan_from_result(new["location"][0], new["location"][1], demand,
                                  result, params, new["unavailable"],
-                                 declined=new["declined"], flow=flow_summary))
+                                 flow=flow_summary))
     new["candidates"] = candidates
     return new
 

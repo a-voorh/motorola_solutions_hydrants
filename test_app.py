@@ -103,7 +103,7 @@ def test_live_dialog_accept_commits_optimizer_recommendation():
     assert at.session_state["awaiting_decision"] is False
 
 
-def test_decline_keeps_current_plan():
+def test_decline_enters_curation_and_recompute_excludes():
     at = AppTest.from_file("app.py", default_timeout=120)
     at.run()
 
@@ -113,24 +113,40 @@ def test_decline_keeps_current_plan():
 
     _send(at, "Increase demand to 5000 L/min")
     assert at.session_state["awaiting_decision"] is True
-    declined_additions = (
-        set(at.session_state["proposed_plan"]["selected"]) - set(committed["selected"])
-    )
 
     at.button(key="live_decline_btn").click()
     at.run()
 
-    # The committed plan is untouched.
+    # Entered curation; the committed plan is untouched and no auto-decision runs.
+    assert at.session_state["curating"] is True
     assert at.session_state["plan"] == committed
-    # A replacement proposal is staged, awaiting a new decision.
-    assert at.session_state["awaiting_decision"] is True
+    assert at.session_state["awaiting_decision"] is False
+    declined = at.session_state["declined_proposal"]
+    assert declined is not None
+
+    committed_ids = set(committed["selected"].keys())
+    added = [h for h in declined["selected"].keys() if h not in committed_ids]
+    assert added  # demand increase must have proposed additional hydrants
+
+    # Exclude the added hydrants, then recompute.
+    at.multiselect(key="exclude_selection").set_value(added)
+    at.button(key="curate_recompute_btn").click()
+    at.run()
+
     new_proposed = at.session_state["proposed_plan"]
     assert new_proposed is not None
-    # Declined (previously-added) hydrants are excluded from the replacement.
-    assert set(new_proposed["selected"]).isdisjoint(declined_additions)
-    # Committed hydrants stay locked in the replacement.
-    for h in committed["selected"]:
+    assert set(new_proposed["selected"]).isdisjoint(set(added))
+    for h in committed_ids:
         assert h in new_proposed["selected"]
+
+    # Accept the new recommendation.
+    at.button(key="accept_new_btn").click()
+    at.run()
+    assert at.session_state["curating"] is False
+    assert at.session_state["awaiting_decision"] is False
+    assert set(at.session_state["plan"]["selected"]).isdisjoint(set(added))
+    for h in committed_ids:
+        assert h in at.session_state["plan"]["selected"]
 
 
 def test_live_dialog_failure_accept_shares_state_with_scripts():
