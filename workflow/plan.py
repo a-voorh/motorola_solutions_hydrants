@@ -25,8 +25,8 @@ def _plan_objective(selected, v=DEFAULT_V, q=DEFAULT_Q):
 
 
 def _candidate_pool(plan, hydrants_df):
-    """Hydrants not yet selected and not unavailable."""
-    excl = set(plan["unavailable"]) | set(plan["selected"].keys())
+    """Hydrants not yet selected, not unavailable, and not declined."""
+    excl = set(plan["unavailable"]) | set(plan.get("declined", [])) | set(plan["selected"].keys())
     return hydrants_df[~hydrants_df["Hydrant"].isin(excl)]
 
 
@@ -55,7 +55,7 @@ def _plan_summary_text(plan):
     return f"demand {demand}; selected {selected} (nominal {nom:g} L/min)"
 
 
-def _plan_from_result(lat, lon, demand, result, params, unavailable, flow=None):
+def _plan_from_result(lat, lon, demand, result, params, unavailable, flow=None, declined=None):
     """Assemble the plan dict from a :class:`ModelResult`."""
     plan = {
         "location": (lat, lon),
@@ -67,6 +67,7 @@ def _plan_from_result(lat, lon, demand, result, params, unavailable, flow=None):
             for s in result.selected
         },
         "unavailable": list(unavailable),
+        "declined": list(declined or []),
         "objective": result.deployment_time,
         "radius": result.radius,
         "insufficient": not result.demand_met,

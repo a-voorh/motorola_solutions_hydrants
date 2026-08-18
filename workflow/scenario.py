@@ -15,6 +15,7 @@ Turns a :class:`Scenario` into the same plan/event flow the manual UI produces:
 from domain import (
     DEFAULT_MAX_RADIUS,
     DEFAULT_PLANNING_RESERVE_PERCENT,
+    DEFAULT_RADIUS_EXTENSION_M,
     DEFAULT_RADIUS_STEP,
     DEFAULT_START_RADIUS,
     IncidentRequest,
@@ -42,6 +43,7 @@ def apply_scenario_message(plan, comparison, message, hydrants_df, model="B",
                            start_radius=DEFAULT_START_RADIUS,
                            radius_step=DEFAULT_RADIUS_STEP,
                            max_radius=DEFAULT_MAX_RADIUS,
+                           radius_extension=DEFAULT_RADIUS_EXTENSION_M,
                            distance_method="gis", graph=None):
     """Apply one :class:`ScenarioMessage` -> (plan, event, comparison).
 
@@ -73,7 +75,8 @@ def apply_scenario_message(plan, comparison, message, hydrants_df, model="B",
         new_plan, event, error = process_update(
             plan, message.text, hydrants_df, model, params,
             start_radius=start_radius, radius_step=radius_step,
-            max_radius=max_radius, distance_method=distance_method, graph=graph,
+            max_radius=max_radius, radius_extension=radius_extension,
+            distance_method=distance_method, graph=graph,
         )
         if error is None:
             event["speaker"] = message.speaker
@@ -88,6 +91,7 @@ def run_scenario(scenario, hydrants_df, model="B", params=None, *,
                  start_radius=DEFAULT_START_RADIUS,
                  radius_step=DEFAULT_RADIUS_STEP,
                  max_radius=DEFAULT_MAX_RADIUS,
+                 radius_extension=DEFAULT_RADIUS_EXTENSION_M,
                  distance_method="gis", graph=None):
     """Apply every message in ``scenario`` -> (plan, event_log, comparison).
 
@@ -103,7 +107,8 @@ def run_scenario(scenario, hydrants_df, model="B", params=None, *,
             plan, comparison, message, hydrants_df, model, params,
             planning_reserve_percent=planning_reserve_percent,
             start_radius=start_radius, radius_step=radius_step,
-            max_radius=max_radius, distance_method=distance_method, graph=graph,
+            max_radius=max_radius, radius_extension=radius_extension,
+            distance_method=distance_method, graph=graph,
         )
         event_log.append(event)
 

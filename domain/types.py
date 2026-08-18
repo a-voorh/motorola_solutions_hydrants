@@ -181,6 +181,7 @@ class Plan(TypedDict, total=False):
     result: Any  # ModelResult | None
     selected: dict  # {hydrant: {"capacity": float, "distance": float}}
     unavailable: list
+    declined: list
     objective: float | None
     radius: float | None
     insufficient: bool

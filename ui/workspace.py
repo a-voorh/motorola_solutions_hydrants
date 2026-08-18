@@ -12,12 +12,12 @@ same ``st.session_state`` objects.
 
 import streamlit as st
 
-from domain import CARRIED_PIECES, MODEL_OPTION_LABELS, IncidentRequest
+from domain import CARRIED_PIECES, DEFAULT_RADIUS_EXTENSION_M, MODEL_OPTION_LABELS, IncidentRequest
 from extraction import detect_update, extract_location
 from graph_cache import get_graph
 from ui.components import render_result
 from ui.map import render_hydrant_map
-from workflow import analyse_incident, process_update
+from workflow import analyse_incident, process_update, recompute_plan, _plan_summary_text
 
 _DISTANCE_LABELS = {
     "network": "Street network",
@@ -35,6 +35,7 @@ def _settings():
         "start_radius": st.session_state.get("start_radius", 30),
         "radius_step": st.session_state.get("radius_step", 30),
         "max_radius": st.session_state.get("max_radius", 1500),
+        "radius_extension": st.session_state.get("radius_extension", DEFAULT_RADIUS_EXTENSION_M),
     }
 
 
@@ -97,13 +98,15 @@ def _run_update(plan, message, hydrants_df):
     s = _settings()
     method, graph = s["distance_method"], None
     if method == "network":
-        method, graph = _resolve_network(plan["location"][0], plan["location"][1], s["max_radius"])
+        method, graph = _resolve_network(plan["location"][0], plan["location"][1],
+                                         s["max_radius"] + s["radius_extension"])
     st.session_state["live_method"] = method
     st.session_state["live_graph"] = graph
     return process_update(
         plan, message, hydrants_df, s["model"],
         start_radius=s["start_radius"], radius_step=s["radius_step"],
-        max_radius=s["max_radius"], distance_method=method, graph=graph,
+        max_radius=s["max_radius"], radius_extension=s["radius_extension"],
+        distance_method=method, graph=graph,
     )
 
 
@@ -195,12 +198,88 @@ def _commit(hydrants_df):
     _append_live("assistant", "Recommendation accepted.")
 
 
-def _discard():
-    st.session_state.pop("proposed_plan", None)
+def _discard(hydrants_df):
+    """Decline the proposal, then recompute with its new hydrants excluded.
+
+    Already-committed hydrants stay committed; only the hydrants the proposal
+    *added* are excluded, and the search radius is extended so alternatives can
+    be found. The replacement is staged as a fresh proposal for Accept/Decline.
+    """
+    proposed = st.session_state.pop("proposed_plan", None)
     st.session_state.pop("proposed_comparison", None)
     st.session_state.pop("proposed_event", None)
-    st.session_state["awaiting_decision"] = False
-    _append_live("assistant", "Recommendation declined.")
+    plan = st.session_state.get("plan")
+
+    if proposed is None:
+        st.session_state["awaiting_decision"] = False
+        _append_live("assistant", "Recommendation declined.")
+        return
+
+    existing = set((plan or {}).get("selected", {}).keys())
+    declined_now = [h for h in proposed.get("selected", {}).keys() if h not in existing]
+    if not declined_now:
+        st.session_state["awaiting_decision"] = False
+        _append_live("assistant", "Recommendation declined.")
+        return
+
+    declined = list(dict.fromkeys(st.session_state.get("declined_hydrants", []) + declined_now))
+    st.session_state["declined_hydrants"] = declined
+
+    s = _settings()
+    method, graph = s["distance_method"], None
+    loc = (plan or proposed)["location"]
+    if method == "network":
+        method, graph = _resolve_network(loc[0], loc[1], s["max_radius"] + s["radius_extension"])
+    st.session_state["live_method"] = method
+    st.session_state["live_graph"] = graph
+
+    if plan is None:
+        transcript = proposed.get("transcript") or (
+            f"We need {proposed.get('stated_minimum_flow_l_min', 0):g} L/min"
+        )
+        request = IncidentRequest(
+            transcript=transcript,
+            location=proposed["location"],
+            planning_reserve_percent=s["reserve"],
+        )
+        filtered = hydrants_df[
+            ~hydrants_df["Hydrant"].isin(set(declined) | set(proposed.get("unavailable", [])))
+        ]
+        new_proposed, _event, _comparison = analyse_incident(
+            request, filtered, s["model"],
+            start_radius=s["start_radius"], radius_step=s["radius_step"],
+            max_radius=s["max_radius"] + s["radius_extension"],
+            distance_method=method, graph=graph,
+        )
+    else:
+        new_proposed = recompute_plan(
+            plan, hydrants_df, s["model"],
+            exclude=declined,
+            start_radius=s["start_radius"], radius_step=s["radius_step"],
+            max_radius=s["max_radius"], radius_extension=s["radius_extension"],
+            distance_method=method, graph=graph,
+        )
+
+    if new_proposed is not None and new_proposed.get("result") is not None:
+        st.session_state["proposed_plan"] = new_proposed
+        st.session_state["proposed_comparison"] = None
+        st.session_state["proposed_event"] = {
+            "kind": "decline",
+            "message": None,
+            "flow": None,
+            "hydrant": None,
+            "declined": declined_now,
+            "summary": _plan_summary_text(new_proposed),
+        }
+        st.session_state["awaiting_decision"] = True
+        _append_live(
+            "assistant",
+            f"Recommendation declined; excluding {', '.join(declined_now)}. "
+            "Recomputed with an extended search radius.",
+        )
+    else:
+        st.session_state["awaiting_decision"] = False
+        _append_live("assistant", "Recommendation declined.")
 
 
 def _render_dialog(hydrants_df):
@@ -334,7 +413,7 @@ def _render_recommendation(hydrants_df):
                 st.rerun()
         with col_dec:
             if st.button("Decline", key="live_decline_btn"):
-                _discard()
+                _discard(hydrants_df)
                 st.rerun()
         _render_plan_output(proposed, hydrants_df)
     elif plan is not None and plan.get("result") is not None:

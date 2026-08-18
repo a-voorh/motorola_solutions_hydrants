@@ -25,6 +25,7 @@ DEFAULT_GAMMA = 10000.0
 DEFAULT_START_RADIUS = 30
 DEFAULT_RADIUS_STEP = 30
 DEFAULT_MAX_RADIUS = 1500
+DEFAULT_RADIUS_EXTENSION_M = 200  # extra search radius (m) allowed on recompute
 DEFAULT_PLANNING_RESERVE_PERCENT = 50  # illustrative planning reserve (%)
 
 # Default incident location for map-based pages (Copenhagen demo area). The

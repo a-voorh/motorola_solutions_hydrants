@@ -9,6 +9,7 @@ import copy
 from domain import (
     DEFAULT_MAX_RADIUS,
     DEFAULT_PLANNING_RESERVE_PERCENT,
+    DEFAULT_RADIUS_EXTENSION_M,
     DEFAULT_RADIUS_STEP,
     DEFAULT_START_RADIUS,
     MODEL_NAMES,
@@ -59,6 +60,7 @@ def analyse_incident(request, hydrants_df, model="B", params=None, *,
             "result": None,
             "selected": selected,
             "unavailable": [],
+            "declined": [],
             "objective": _plan_objective(selected, params.v, params.q) if selected else None,
             "radius": None,
             "insufficient": False,
@@ -113,10 +115,83 @@ def run_initial_analysis(lat, lon, transcript, hydrants_df, model="B",
     return plan, event
 
 
+def recompute_plan(plan, hydrants_df, model=None, params=None, *,
+                   exclude=(),
+                   start_radius=DEFAULT_START_RADIUS,
+                   radius_step=DEFAULT_RADIUS_STEP,
+                   max_radius=DEFAULT_MAX_RADIUS,
+                   radius_extension=DEFAULT_RADIUS_EXTENSION_M,
+                   distance_method="gis",
+                   graph=None):
+    """Recompute a demand-known plan -> new plan dict.
+
+    ``exclude`` lists hydrants to drop from the candidate pool (e.g. dispatcher
+    declines); they are merged into the plan's ``declined`` set so they stay
+    excluded on later recomputes. ``radius_extension`` is added to ``max_radius``
+    so recomputes may search farther than the initial analysis did.
+    """
+    new = copy.deepcopy(plan)
+    model_name = model or plan.get("model", "B")
+    params = params or plan.get("params") or Params()
+    reserve = plan.get("planning_reserve_percent", DEFAULT_PLANNING_RESERVE_PERCENT)
+    new["model"] = model_name
+    new["distance_method"] = distance_method
+    new["planning_reserve_percent"] = reserve
+
+    demand = new.get("effective_demand")
+    if demand is None:
+        return new
+
+    declined = set(new.get("declined", [])) | set(exclude)
+    new["declined"] = sorted(declined)
+    unavailable = new.get("unavailable", [])
+
+    res = plan.get("result")
+    if res is None:
+        committed = set()
+        total_pieces = 0
+    else:
+        survivors = [s for s in res.selected if s.hydrant not in unavailable]
+        committed = {s.hydrant for s in survivors}
+        total_pieces = plan.get("committed_pieces") or 0
+
+    # Hose still committed from failed hydrants (kept while not recoverable).
+    # Count each surviving hydrant's TOTAL pieces across its parallel lines so a
+    # two-line survivor does not inflate the lost-hose reserve.
+    active_pieces = sum(
+        (s.hose_pieces_total if s.hose_pieces_total is not None else s.hose_pieces)
+        for s in (res.selected if res else [])
+        if s.hydrant not in unavailable and s.hose_pieces is not None
+    )
+    failed_pieces = max(0, total_pieces - active_pieces)
+
+    pool = hydrants_df[~hydrants_df["Hydrant"].isin(set(unavailable) | declined)]
+    radius, candidates, sufficient = build_candidates(
+        new["location"][0], new["location"][1], demand, pool,
+        start_radius, radius_step, max_radius + radius_extension, params,
+        distance_method, model_name, graph,
+    )
+    candidates = _ensure_committed(candidates, committed, res)
+
+    result = solve_model(model_name, candidates, demand, params, hydrants_df,
+                         committed=committed,
+                         failed_pieces=failed_pieces,
+                         radius=radius, distance_method=distance_method)
+
+    flow_summary = summarize_flow(new["stated_minimum_flow_l_min"], reserve,
+                                  result.demand_served)
+    new.update(_plan_from_result(new["location"][0], new["location"][1], demand,
+                                 result, params, new["unavailable"],
+                                 declined=new["declined"], flow=flow_summary))
+    new["candidates"] = candidates
+    return new
+
+
 def apply_update(plan, message, hydrants_df, model=None, params=None,
                  start_radius=DEFAULT_START_RADIUS,
                  radius_step=DEFAULT_RADIUS_STEP,
                  max_radius=DEFAULT_MAX_RADIUS,
+                 radius_extension=DEFAULT_RADIUS_EXTENSION_M,
                  planning_reserve_percent=None,
                  distance_method="gis",
                  graph=None):
@@ -160,44 +235,11 @@ def apply_update(plan, message, hydrants_df, model=None, params=None,
                             if new["selected"] else None)
         return new, det, None
 
-    # --- demand known: single-connection update ---
-    demand = new["effective_demand"]
-    res = plan.get("result")
-
-    if res is None:
-        committed = set()
-        total_pieces = 0
-    else:
-        survivors = [s for s in res.selected if s.hydrant not in new["unavailable"]]
-        committed = {s.hydrant for s in survivors}
-        total_pieces = plan.get("committed_pieces") or 0
-
-    # Hose still committed from failed hydrants (kept while not recoverable).
-    active_pieces = sum(
-        s.hose_pieces for s in (res.selected if res else [])
-        if s.hydrant not in new["unavailable"] and s.hose_pieces is not None
-    )
-    failed_pieces = max(0, total_pieces - active_pieces)
-
-    pool = hydrants_df[~hydrants_df["Hydrant"].isin(new["unavailable"])]
-    radius, candidates, sufficient = build_candidates(
-        new["location"][0], new["location"][1], demand, pool,
-        start_radius, radius_step, max_radius, params, distance_method,
-        model_name, graph,
-    )
-    candidates = _ensure_committed(candidates, committed, res)
-
-    result = solve_model(model_name, candidates, demand, params, hydrants_df,
-                         committed=committed,
-                         failed_pieces=failed_pieces,
-                         radius=radius, distance_method=distance_method)
-
-    flow_summary = summarize_flow(new["stated_minimum_flow_l_min"], reserve,
-                                  result.demand_served)
-    new.update(_plan_from_result(new["location"][0], new["location"][1], demand,
-                                 result, params, new["unavailable"],
-                                 flow=flow_summary))
-    new["candidates"] = candidates
+    # --- demand known: recompute with committed survivors locked ---
+    new = recompute_plan(new, hydrants_df, model_name, params,
+                         start_radius=start_radius, radius_step=radius_step,
+                         max_radius=max_radius, radius_extension=radius_extension,
+                         distance_method=distance_method, graph=graph)
     return new, det, None
 
 
@@ -205,13 +247,15 @@ def process_update(plan, message, hydrants_df, model=None, params=None,
                    start_radius=DEFAULT_START_RADIUS,
                    radius_step=DEFAULT_RADIUS_STEP,
                    max_radius=DEFAULT_MAX_RADIUS,
+                   radius_extension=DEFAULT_RADIUS_EXTENSION_M,
                    planning_reserve_percent=None,
                    distance_method="gis",
                    graph=None):
     """Run an update and build the event (retained/added) for logging."""
     new, det, error = apply_update(
         plan, message, hydrants_df, model, params, start_radius, radius_step,
-        max_radius, planning_reserve_percent, distance_method, graph,
+        max_radius, radius_extension, planning_reserve_percent, distance_method,
+        graph,
     )
     if error:
         return None, None, error

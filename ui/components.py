@@ -25,6 +25,8 @@ def describe_event(e):
         return f"Hydrant {e['hydrant']} marked unavailable"
     if kind == "failure+demand":
         return f"Hydrant {e['hydrant']} unavailable; request update to {e['flow']:g} L/min"
+    if kind == "decline":
+        return f"Recommendation declined (excluded {', '.join(e.get('declined', [])) or 'none'})"
     if kind == "chatter":
         return "No action required"
     return str(kind)

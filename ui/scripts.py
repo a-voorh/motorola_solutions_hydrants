@@ -76,6 +76,8 @@ def _render_sidebar_advanced():
             radius_step = st.number_input("Radius step (m)", key="radius_step", min_value=10, value=30, step=10)
             start_radius = st.number_input("Starting radius (m)", key="start_radius", min_value=0, value=30, step=10)
             max_radius = st.number_input("Maximum radius (m)", key="max_radius", min_value=start_radius, value=1500, step=10)
+            radius_extension = st.number_input("Recompute radius extension (m)", key="radius_extension",
+                                               min_value=0, value=200, step=10)
 
         with st.expander("Session state (debug)", expanded=False):
             p = st.session_state.get("plan")
