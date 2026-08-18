@@ -14,8 +14,8 @@ import re
 
 from domain import UpdateFacts
 
-# L/min: "4000 L/min", "4,000 l/min", "2.5 litres per minute",
-# "4000 liters per minute", "4000 lpm", "4000 LPM".
+# L/min: "800 L/min", "800 l/min", "2.5 litres per minute",
+# "800 liters per minute", "800 lpm", "800 LPM".
 _FLOW_RE = re.compile(
     r"(?P<num>\d[\d,\.]*)\s*"
     r"(?:l|L)(?:itres?|iters?)?\s*(?:/|per)?\s*(?:min|minute)?"
@@ -94,7 +94,7 @@ def _words_to_number(text):
 def extract_flow(transcript):
     """Rule-based flow extractor -> (required_flow_l_min, flow_explicitly_stated).
 
-    Handles digit forms ("4000", "2.5") and word forms ("four thousand",
+    Handles digit forms ("800", "2.5") and word forms ("eight hundred",
     "two point five"), both in L/min units.
     """
     if not transcript:
@@ -118,7 +118,7 @@ def extract_flow(transcript):
 #   * "55.664178 12.607972"   (whitespace)
 #   * "lat 55.664178 lon 12.607972" / "lat: 55.66, lon: 12.61" (labels)
 # Requiring a decimal point on both coordinates avoids matching flow numbers
-# like "4000 L/min".
+# like "800 L/min".
 _COORD_NUM = r"-?\d{1,3}\.\d+"
 _LOCATION_RE = re.compile(
     rf"(?:lat\w*\s*[:=]?\s*(?P<lat1>{_COORD_NUM})\s*[,;]?\s*(?:lon\w*\s*[:=]?\s*)?(?P<lon1>{_COORD_NUM}))"

@@ -68,7 +68,7 @@ with col1:
 with col2:
     lon = st.number_input("Fire longitude", key="fire_lon", value=None, format="%.6f")
 with col3:
-    flow = st.number_input("Required flow (L/min)", value=4000, min_value=0)
+    flow = st.number_input("Required flow (L/min)", value=800, min_value=0)
 
 distance_method = st.radio(
     "Distance method",

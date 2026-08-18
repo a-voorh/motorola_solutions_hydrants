@@ -212,7 +212,7 @@ def _render_dialog(hydrants_df):
         msg = st.text_input(
             "Describe the situation",
             key="live_dialog_input",
-            placeholder="e.g. 'We need 4000 L/min at 55.664178, 12.607972'",
+            placeholder="e.g. 'We need 800 L/min at 55.664178, 12.607972'",
         )
         submitted = st.form_submit_button("Send", key="live_send_btn")
 
@@ -247,7 +247,7 @@ def _render_sidebar_config(hydrants_df):
         if "demand_lpm" not in st.session_state:
             st.session_state["demand_lpm"] = (
                 plan["stated_minimum_flow_l_min"]
-                if plan and plan.get("stated_minimum_flow_l_min") is not None else 4000.0
+                if plan and plan.get("stated_minimum_flow_l_min") is not None else 800.0
             )
         demand = st.number_input("Demand (L/min)", key="demand_lpm", min_value=0.0, step=100.0)
 
@@ -342,7 +342,7 @@ def _render_recommendation(hydrants_df):
         _render_plan_output(plan, hydrants_df)
     else:
         st.info("No recommendation yet. Describe the situation in the chat "
-                "(e.g. 'We need 4000 L/min at 55.664178, 12.607972').")
+                "(e.g. 'We need 800 L/min at 55.664178, 12.607972').")
 
 
 def render_workspace(hydrants_df):
