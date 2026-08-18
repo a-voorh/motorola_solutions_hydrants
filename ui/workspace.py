@@ -16,7 +16,7 @@ from domain import CARRIED_PIECES, DEFAULT_RADIUS_EXTENSION_M, MODEL_OPTION_LABE
 from extraction import detect_update, extract_location
 from graph_cache import get_graph
 from ui.components import render_result
-from ui.map import render_hydrant_map
+from ui.map import render_hydrant_map, render_selection_map
 from workflow import analyse_incident, process_update, recompute_plan, _plan_summary_text
 
 _DISTANCE_LABELS = {
@@ -285,7 +285,7 @@ def _recompute_from_decline(hydrants_df):
 
 
 def _render_curation(hydrants_df):
-    """Curation panel: exclude / force-include multiselects + recompute."""
+    """Curation panel: exclude / force-include multiselects + selection map."""
     declined = st.session_state.get("declined_proposal")
     if declined is None:
         st.session_state["curating"] = False
@@ -295,19 +295,45 @@ def _render_curation(hydrants_df):
     plan = st.session_state.get("plan")
     committed = set((plan or {}).get("selected", {}).keys())
     drop_options = [h for h in declined.get("selected", {}).keys() if h not in committed]
-    st.multiselect("Exclude hydrants", options=drop_options, key="exclude_selection")
 
     candidates = declined.get("candidates")
     cand_ids = list(candidates.index) if candidates is not None and not candidates.empty else []
     selected = set(declined.get("selected", {}).keys())
     include_options = [h for h in cand_ids if h not in selected]
-    st.multiselect("Force-include hydrants", options=include_options, key="require_selection")
 
-    if st.button("Recompute", key="curate_recompute_btn"):
-        _recompute_from_decline(hydrants_df)
-        st.rerun()
+    col_ctrl, col_map = st.columns([1, 1])
+    with col_ctrl:
+        st.multiselect("Exclude hydrants", options=drop_options, key="exclude_selection")
+        st.multiselect("Force-include hydrants", options=include_options, key="require_selection")
+        if st.button("Recompute", key="curate_recompute_btn"):
+            _recompute_from_decline(hydrants_df)
+            st.rerun()
 
-    _render_plan_output(declined, hydrants_df)
+    with col_map:
+        _render_selection_map(hydrants_df, declined, candidates, selected)
+
+    _render_plan_output(declined, hydrants_df, map_key="curation_declined")
+
+
+def _render_selection_map(hydrants_df, declined, candidates, selected_ids):
+    """Color-coded candidate map with always-visible hydrant IDs."""
+    fire_lat, fire_lon = declined["location"]
+    locs = hydrants_df.set_index("Hydrant")[["Latitude", "Longitude"]]
+    if candidates is None or candidates.empty:
+        cand_map = None
+    else:
+        cand_map = candidates.join(locs)
+
+    render_selection_map(
+        fire_lat, fire_lon, cand_map,
+        selected_ids=selected_ids,
+        excluded_ids=set(st.session_state.get("exclude_selection") or []),
+        required_ids=set(st.session_state.get("require_selection") or []),
+        radius=declined.get("radius") or 500,
+        unavailable=declined.get("unavailable"),
+        hydrants_df=hydrants_df,
+        key="curation_select_map",
+    )
 
 
 def _render_comparison(hydrants_df, declined, proposed):
@@ -476,12 +502,6 @@ def _render_recommendation(hydrants_df):
     proposed = st.session_state.get("proposed_plan")
     plan = st.session_state.get("plan")
 
-    if st.session_state.get("curating"):
-        # Comparison (when a new proposal exists) is rendered full-width below
-        # by render_workspace; here only the pre-recompute curation panel.
-        if proposed is None:
-            _render_curation(hydrants_df)
-        return
     if proposed is not None:
         st.subheader("Proposed recommendation")
         col_acc, col_dec = st.columns(2)
@@ -506,10 +526,8 @@ def render_workspace(hydrants_df):
     """Render the shared dispatcher workspace (config sidebar + chat + recommendation)."""
     _render_sidebar_config(hydrants_df)
 
-    comparing = (
-        st.session_state.get("curating")
-        and st.session_state.get("proposed_plan") is not None
-    )
+    curating = st.session_state.get("curating")
+    comparing = curating and st.session_state.get("proposed_plan") is not None
 
     col_chat, col_output = st.columns([3, 2])
     with col_chat:
@@ -519,6 +537,8 @@ def render_workspace(hydrants_df):
         st.subheader("Recommendation")
         if comparing:
             st.info("Comparing declined vs new recommendation below.")
+        elif curating:
+            st.info("Adjust preferences below.")
         else:
             _render_recommendation(hydrants_df)
 
@@ -528,3 +548,5 @@ def render_workspace(hydrants_df):
             st.session_state["declined_proposal"],
             st.session_state["proposed_plan"],
         )
+    elif curating:
+        _render_curation(hydrants_df)

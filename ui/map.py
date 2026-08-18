@@ -248,3 +248,73 @@ def _radius_deg_lat(meters):
 
 def _radius_deg_lon(meters, lat):
     return meters / (111320.0 * math.cos(math.radians(lat)))
+
+
+def render_selection_map(fire_lat, fire_lon, candidates, selected_ids,
+                         excluded_ids, required_ids, radius, unavailable=None,
+                         hydrants_df=None, key=None):
+    """Render the curation selection map with always-visible hydrant IDs.
+
+    ``candidates`` is a DataFrame indexed by ``Hydrant`` with ``Latitude`` /
+    ``Longitude`` columns. Each hydrant is coloured by state: required
+    (orange), excluded (red), selected (green), or available (blue); unavailable
+    hydrants (looked up in ``hydrants_df``) are drawn black. Hydrant IDs are
+    shown as always-visible text labels beside each marker.
+    """
+    m = folium.Map(location=(fire_lat, fire_lon), zoom_start=15)
+
+    folium.Marker(
+        (fire_lat, fire_lon),
+        icon=folium.Icon(color="red", icon="info-sign"),
+        tooltip="Fire location",
+    ).add_to(m)
+    folium.Circle(
+        location=(fire_lat, fire_lon), radius=radius, color="red",
+        weight=2, fill=False, dash_array="4 4",
+    ).add_to(m)
+
+    selected_ids = set(selected_ids or [])
+    excluded_ids = set(excluded_ids or [])
+    required_ids = set(required_ids or [])
+
+    def _add_hydrant(hid, lat, lon, color, fill_opacity=0.8):
+        folium.CircleMarker(
+            location=(lat, lon), radius=5, color=color,
+            fill=True, fill_opacity=fill_opacity,
+        ).add_to(m)
+        folium.Marker(
+            location=(lat, lon),
+            icon=folium.DivIcon(html=(
+                f'<div style="font-size:11px;font-weight:bold;color:{color};'
+                f'background:rgba(255,255,255,0.75);padding:0 2px;'
+                f'transform:translate(8px,-8px);">{hid}</div>'
+            )),
+        ).add_to(m)
+
+    if candidates is not None:
+        for hid, row in candidates.iterrows():
+            if hid in required_ids:
+                color = "orange"
+            elif hid in excluded_ids:
+                color = "red"
+            elif hid in selected_ids:
+                color = "green"
+            else:
+                color = "blue"
+            _add_hydrant(hid, row["Latitude"], row["Longitude"], color)
+
+    if unavailable and hydrants_df is not None:
+        locs = hydrants_df.set_index("Hydrant")[["Latitude", "Longitude"]]
+        for hid in unavailable:
+            if hid not in locs.index:
+                continue
+            _add_hydrant(hid, locs.loc[hid, "Latitude"], locs.loc[hid, "Longitude"],
+                         "black", fill_opacity=0.9)
+
+    if radius is not None:
+        m.fit_bounds([
+            [fire_lat - _radius_deg_lat(radius), fire_lon - _radius_deg_lon(radius, fire_lat)],
+            [fire_lat + _radius_deg_lat(radius), fire_lon + _radius_deg_lon(radius, fire_lat)],
+        ])
+
+    return st_folium(m, height=500, key=key)

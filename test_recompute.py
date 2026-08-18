@@ -163,3 +163,36 @@ def test_initial_analysis_keeps_candidate_margin():
         max_radius=1500, candidate_margin=0, distance_method="manhattan",
     )
     assert "H2" not in no_margin["candidates"].index
+
+
+def test_recompute_keeps_candidate_margin():
+    # H2 at 80 m: outside the 30 m covering radius but inside the +100 m pad.
+    dlat = 80.0 / 111320.0
+    hydrants = pd.DataFrame({
+        "Hydrant": ["H1", "H2"],
+        "Latitude": [55.6, 55.6 + dlat],
+        "Longitude": [12.5, 12.5],
+        "Capacity_L_min": [1000.0, 100.0],
+        "Available": [True, True],
+    })
+
+    request = IncidentRequest(transcript="We need 1000 L/min",
+                              location=(55.6, 12.5), planning_reserve_percent=0.0)
+    plan, _e, _c = analyse_incident(
+        request, hydrants, "B", Params(),
+        max_radius=1500, candidate_margin=0, distance_method="manhattan",
+    )
+    assert "H2" not in plan["candidates"].index
+
+    # Default recompute pads the pool, so H2 becomes a candidate (not selected).
+    padded = recompute_plan(plan, hydrants, "B",
+                            distance_method="manhattan", max_radius=1500,
+                            radius_extension=0)
+    assert "H2" in padded["candidates"].index
+    assert set(padded["selected"]) == {"H1"}
+
+    # candidate_margin=0 leaves H2 out of the recomputed pool.
+    unpadded = recompute_plan(plan, hydrants, "B",
+                              distance_method="manhattan", max_radius=1500,
+                              radius_extension=0, candidate_margin=0)
+    assert "H2" not in unpadded["candidates"].index

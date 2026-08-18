@@ -127,6 +127,7 @@ def recompute_plan(plan, hydrants_df, model=None, params=None, *,
                    radius_step=DEFAULT_RADIUS_STEP,
                    max_radius=DEFAULT_MAX_RADIUS,
                    radius_extension=DEFAULT_RADIUS_EXTENSION_M,
+                   candidate_margin=DEFAULT_CANDIDATE_MARGIN_M,
                    distance_method="gis",
                    graph=None):
     """Recompute a demand-known plan -> new plan dict.
@@ -135,7 +136,8 @@ def recompute_plan(plan, hydrants_df, model=None, params=None, *,
     ``require`` lists hydrants to lock into the solution (hard requirement, in
     addition to the already-deployed survivors). Both are one-shot and are not
     persisted on the plan. ``radius_extension`` is added to ``max_radius`` so
-    recomputes may search farther than the initial analysis did.
+    recomputes may search farther than the initial analysis did;
+    ``candidate_margin`` pads the pool past the covering radius.
     """
     new = copy.deepcopy(plan)
     model_name = model or plan.get("model", "B")
@@ -175,7 +177,7 @@ def recompute_plan(plan, hydrants_df, model=None, params=None, *,
     radius, candidates, sufficient = build_candidates(
         new["location"][0], new["location"][1], demand, pool,
         start_radius, radius_step, max_radius + radius_extension, params,
-        distance_method, model_name, graph,
+        distance_method, model_name, graph, candidate_margin,
     )
     candidates = _ensure_committed(candidates, survivors, res)
 
