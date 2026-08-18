@@ -81,7 +81,7 @@ def _tol(demand: float) -> float:
 # MILP construction
 # --------------------------------------------------------------------------
 
-def _build_milp(model, candidates, demand, params, committed, failed_pieces):
+def _build_milp(model, candidates, demand, params, committed, failed_pieces, committed_lines=None):
     """Return the fixed part of the MILP (bounds, constraints) + objective hooks."""
     idx = list(candidates.index)
     n = len(idx)
@@ -91,6 +91,7 @@ def _build_milp(model, candidates, demand, params, committed, failed_pieces):
 
     committed = set(committed) if committed else set()
     is_committed = np.array([h_ in committed for h_ in idx], dtype=bool)
+    committed_lines = committed_lines or {}
 
     is_c = model in ("C-soft", "C-hard")
     has_o = model == "C-soft"
@@ -178,10 +179,14 @@ def _build_milp(model, candidates, demand, params, committed, failed_pieces):
         return Y0 + i * L + k
 
     # At most one configuration per hydrant (and exactly one if committed).
+    # A committed hydrant must keep at least its previous number of lines.
     for i in range(n):
         _row([(_y(i, k), 1.0) for k in range(L)], -np.inf, 1.0)
         if is_committed[i]:
             _row([(_y(i, k), 1.0) for k in range(L)], 1.0, np.inf)
+            prev = committed_lines.get(idx[i], 1)
+            if prev > 1:
+                _row([(_y(i, k), 1.0) for k in range(prev - 1)], -np.inf, 0.0)
 
     # sum_i sum_n a[i, n] * y[i, n] + u >= demand
     _row(
@@ -285,9 +290,9 @@ def _stack_pins(pb, *pins):
     return rows, lb, ub
 
 
-def _solve_model_raw(model, candidates, demand, params, committed, failed_pieces):
+def _solve_model_raw(model, candidates, demand, params, committed, failed_pieces, committed_lines=None):
     """Return (pb, res) for the full demand with committed hydrants locked."""
-    pb = _build_milp(model, candidates, demand, params, committed, failed_pieces)
+    pb = _build_milp(model, candidates, demand, params, committed, failed_pieces, committed_lines)
 
     tol = _tol(demand)
 
@@ -319,14 +324,17 @@ def _solve_model_raw(model, candidates, demand, params, committed, failed_pieces
 # --------------------------------------------------------------------------
 
 def solve_model(model, candidates, demand, params=None, hydrants_df=None,
-                committed=None, failed_pieces=0, radius=None, distance_method="gis"):
+                committed=None, failed_pieces=0, radius=None, distance_method="gis",
+                committed_lines=None):
     """Solve one model and return a :class:`ModelResult`.
 
     ``candidates`` is a DataFrame indexed by ``Hydrant`` with columns
     ``Distance_m`` and ``Capacity_L_min`` (must include any committed hydrants
     so they can be locked). ``committed`` is an iterable of hydrant ids already
-    selected that must stay selected; ``failed_pieces`` is the total hose pieces
-    still committed from failed hydrants (C models).
+    selected that must stay selected; ``committed_lines`` maps those ids to the
+    number of parallel lines they already have deployed (C models keep at least
+    that many). ``failed_pieces`` is the total hose pieces still committed from
+    failed hydrants (C models).
     """
     if model not in MODEL_NAMES:
         raise ValueError(f"Unknown model {model!r}; expected one of {MODEL_NAMES}")
@@ -335,7 +343,7 @@ def solve_model(model, candidates, demand, params=None, hydrants_df=None,
     if len(candidates) == 0:
         return _empty_result(model, demand, params, radius, distance_method)
 
-    pb, res = _solve_model_raw(model, candidates, demand, params, committed, failed_pieces)
+    pb, res = _solve_model_raw(model, candidates, demand, params, committed, failed_pieces, committed_lines)
 
     x = res.x
     n = pb["n"]

@@ -12,12 +12,12 @@ same ``st.session_state`` objects.
 
 import streamlit as st
 
-from domain import CARRIED_PIECES, MODEL_OPTION_LABELS, IncidentRequest
+from domain import CARRIED_PIECES, DEFAULT_RADIUS_EXTENSION_M, MODEL_OPTION_LABELS, IncidentRequest
 from extraction import detect_update, extract_location
 from graph_cache import get_graph
-from ui.components import render_result
-from ui.map import render_hydrant_map
-from workflow import analyse_incident, process_update
+from ui.components import render_result_body, render_result_header
+from ui.map import render_hydrant_map, render_selection_map
+from workflow import analyse_incident, process_update, recompute_plan, _plan_summary_text
 
 _DISTANCE_LABELS = {
     "network": "Street network",
@@ -29,12 +29,13 @@ _DISTANCE_LABELS = {
 def _settings():
     """Read the shared operational settings (with defaults)."""
     return {
-        "model": st.session_state.get("model", "B"),
+        "model": st.session_state.get("model", "C-soft"),
         "reserve": st.session_state.get("planning_reserve", 50.0),
         "distance_method": st.session_state.get("distance_method", "network"),
         "start_radius": st.session_state.get("start_radius", 30),
         "radius_step": st.session_state.get("radius_step", 30),
         "max_radius": st.session_state.get("max_radius", 1500),
+        "radius_extension": st.session_state.get("radius_extension", DEFAULT_RADIUS_EXTENSION_M),
     }
 
 
@@ -97,13 +98,15 @@ def _run_update(plan, message, hydrants_df):
     s = _settings()
     method, graph = s["distance_method"], None
     if method == "network":
-        method, graph = _resolve_network(plan["location"][0], plan["location"][1], s["max_radius"])
+        method, graph = _resolve_network(plan["location"][0], plan["location"][1],
+                                         s["max_radius"] + s["radius_extension"])
     st.session_state["live_method"] = method
     st.session_state["live_graph"] = graph
     return process_update(
         plan, message, hydrants_df, s["model"],
         start_radius=s["start_radius"], radius_step=s["radius_step"],
-        max_radius=s["max_radius"], distance_method=method, graph=graph,
+        max_radius=s["max_radius"], radius_extension=s["radius_extension"],
+        distance_method=method, graph=graph,
     )
 
 
@@ -133,6 +136,7 @@ def propose_from_message(message, hydrants_df, location=None):
     proposed = None
     comparison = None
     event = None
+    covered = False
 
     if facts.failure:
         if plan is None:
@@ -145,7 +149,18 @@ def propose_from_message(message, hydrants_df, location=None):
             summary = "No active incident yet — describe the situation first."
         else:
             proposed, event, error = _run_update(plan, message, hydrants_df)
-            summary = f"New demand {facts.flow:g} L/min" if not error else "Could not apply the update."
+            if error:
+                summary = "Could not apply the update."
+            elif event and event.get("covered"):
+                covered = True
+                st.session_state["plan"] = proposed
+                st.session_state["event_log"] = st.session_state.get("event_log", []) + [event]
+                if proposed.get("stated_minimum_flow_l_min") is not None:
+                    _seed_config(demand=proposed["stated_minimum_flow_l_min"])
+                summary = (f"New demand {facts.flow:g} L/min — already covered by the "
+                           "current plan; all is well, nothing to do.")
+            else:
+                summary = f"New demand {facts.flow:g} L/min"
     elif facts.stated:
         if plan is None:
             fb = _fallback_location()
@@ -167,23 +182,22 @@ def propose_from_message(message, hydrants_df, location=None):
     else:
         summary = "No configuration change detected."
 
-    if proposed is not None:
+    if proposed is not None and not covered:
         st.session_state["proposed_plan"] = proposed
         st.session_state["proposed_comparison"] = comparison
         st.session_state["proposed_event"] = event
-    st.session_state["awaiting_decision"] = proposed is not None
+    st.session_state["awaiting_decision"] = proposed is not None and not covered
 
     _append_live("assistant", summary)
     return summary
 
 
-def _commit(hydrants_df):
-    proposed = st.session_state.pop("proposed_plan", None)
+def _commit_plan(proposed, hydrants_df, event=None):
+    """Commit ``proposed`` as the active plan and clear transient state."""
     if proposed is None:
         return
     st.session_state["plan"] = proposed
     st.session_state["comparison"] = st.session_state.pop("proposed_comparison", [])
-    event = st.session_state.pop("proposed_event", None)
     if event:
         st.session_state["event_log"] = st.session_state.get("event_log", []) + [event]
     if proposed.get("stated_minimum_flow_l_min") is not None:
@@ -192,15 +206,192 @@ def _commit(hydrants_df):
     if loc:
         _seed_config(lat=loc[0], lon=loc[1])
     st.session_state["awaiting_decision"] = False
+    st.session_state["curating"] = False
+    st.session_state.pop("declined_proposal", None)
+    st.session_state.pop("exclude_selection", None)
+    st.session_state.pop("require_selection", None)
     _append_live("assistant", "Recommendation accepted.")
 
 
-def _discard():
-    st.session_state.pop("proposed_plan", None)
+def _commit(hydrants_df):
+    event = st.session_state.pop("proposed_event", None)
+    proposed = st.session_state.pop("proposed_plan", None)
+    if proposed is None:
+        return
+    _commit_plan(proposed, hydrants_df, event=event)
+
+
+def _start_curation():
+    """Decline: stash the proposal and enter the interactive curation state."""
+    proposed = st.session_state.pop("proposed_plan", None)
     st.session_state.pop("proposed_comparison", None)
     st.session_state.pop("proposed_event", None)
+    if proposed is None:
+        st.session_state["awaiting_decision"] = False
+        _append_live("assistant", "Recommendation declined.")
+        return
+    st.session_state["declined_proposal"] = proposed
+    st.session_state["curating"] = True
     st.session_state["awaiting_decision"] = False
-    _append_live("assistant", "Recommendation declined.")
+    st.session_state.pop("exclude_selection", None)
+    st.session_state.pop("require_selection", None)
+    _append_live("assistant", "Recommendation declined. Adjust preferences and recompute.")
+
+
+def _recompute_from_decline(hydrants_df):
+    """Recompute using the dispatcher's exclude/require preferences."""
+    declined = st.session_state.get("declined_proposal")
+    if declined is None:
+        return
+    exclude = list(st.session_state.get("exclude_selection") or [])
+    require = list(st.session_state.get("require_selection") or [])
+
+    s = _settings()
+    method, graph = s["distance_method"], None
+    loc = declined["location"]
+    if method == "network":
+        method, graph = _resolve_network(loc[0], loc[1], s["max_radius"] + s["radius_extension"])
+    st.session_state["live_method"] = method
+    st.session_state["live_graph"] = graph
+
+    plan = st.session_state.get("plan")
+    if plan is None:
+        # No committed plan yet: recompute from a base carrying only the demand
+        # and location (nothing is locked, so exclude/require fully drive it).
+        plan = {
+            "location": declined["location"],
+            "effective_demand": declined.get("effective_demand"),
+            "stated_minimum_flow_l_min": declined.get("stated_minimum_flow_l_min"),
+            "planning_reserve_percent": declined.get("planning_reserve_percent", s["reserve"]),
+            "model": s["model"],
+            "params": declined.get("params"),
+            "result": None,
+            "selected": {},
+            "unavailable": list(declined.get("unavailable", [])),
+            "committed_pieces": 0,
+        }
+
+    new_proposed = recompute_plan(
+        plan, hydrants_df, s["model"],
+        exclude=exclude, require=require,
+        start_radius=s["start_radius"], radius_step=s["radius_step"],
+        max_radius=s["max_radius"], radius_extension=s["radius_extension"],
+        distance_method=method, graph=graph,
+    )
+
+    st.session_state["proposed_plan"] = new_proposed
+    st.session_state["proposed_event"] = {
+        "kind": "decline",
+        "message": None,
+        "flow": None,
+        "hydrant": None,
+        "declined": exclude,
+        "required": require,
+        "summary": _plan_summary_text(new_proposed),
+    }
+    _append_live(
+        "assistant",
+        "Recomputed with the dispatcher's preferences "
+        f"(excluded {', '.join(exclude) or 'none'}, required {', '.join(require) or 'none'}).",
+    )
+
+
+def _render_curation(hydrants_df):
+    """Curation panel: exclude / force-include multiselects + selection map."""
+    declined = st.session_state.get("declined_proposal")
+    if declined is None:
+        st.session_state["curating"] = False
+        return
+
+    st.subheader("Declined recommendation — adjust")
+    plan = st.session_state.get("plan")
+    committed = set((plan or {}).get("selected", {}).keys())
+    drop_options = [h for h in declined.get("selected", {}).keys() if h not in committed]
+
+    candidates = declined.get("candidates")
+    cand_ids = list(candidates.index) if candidates is not None and not candidates.empty else []
+    selected = set(declined.get("selected", {}).keys())
+    include_options = [h for h in cand_ids if h not in selected]
+
+    col_ctrl, col_map = st.columns([1, 1])
+    with col_ctrl:
+        st.multiselect("Exclude hydrants", options=drop_options, key="exclude_selection")
+        st.multiselect("Force-include hydrants", options=include_options, key="require_selection")
+        if st.button("Recompute", key="curate_recompute_btn"):
+            _recompute_from_decline(hydrants_df)
+            st.rerun()
+
+    with col_map:
+        _render_selection_map(hydrants_df, declined, candidates, selected)
+
+    _render_plan_output(declined, hydrants_df, map_key="curation_declined")
+
+
+def _render_selection_map(hydrants_df, declined, candidates, selected_ids):
+    """Color-coded candidate map with always-visible hydrant IDs."""
+    fire_lat, fire_lon = declined["location"]
+    locs = hydrants_df.set_index("Hydrant")[["Latitude", "Longitude"]]
+    if candidates is None or candidates.empty:
+        cand_map = None
+    else:
+        cand_map = candidates.join(locs)
+
+    render_selection_map(
+        fire_lat, fire_lon, cand_map,
+        selected_ids=selected_ids,
+        excluded_ids=set(st.session_state.get("exclude_selection") or []),
+        required_ids=set(st.session_state.get("require_selection") or []),
+        radius=declined.get("radius") or 500,
+        unavailable=declined.get("unavailable"),
+        hydrants_df=hydrants_df,
+        key="curation_select_map",
+    )
+
+
+def _render_comparison(hydrants_df, declined, proposed):
+    """Side-by-side declined vs new recommendation with the four actions."""
+    st.subheader("Compare: declined vs new")
+    col_acc, col_dec, col_both, col_cancel = st.columns(4)
+    with col_acc:
+        if st.button("Accept new", key="accept_new_btn", type="primary"):
+            event = st.session_state.pop("proposed_event", None)
+            _commit_plan(st.session_state.pop("proposed_plan", None), hydrants_df, event=event)
+            st.rerun()
+    with col_dec:
+        if st.button("Accept declined", key="accept_declined_btn"):
+            st.session_state.pop("proposed_plan", None)
+            st.session_state.pop("proposed_event", None)
+            _commit_plan(declined, hydrants_df)
+            st.rerun()
+    with col_both:
+        if st.button("Decline both", key="decline_both_btn"):
+            st.session_state["declined_proposal"] = st.session_state.pop("proposed_plan", None)
+            st.session_state.pop("proposed_event", None)
+            st.session_state.pop("proposed_comparison", None)
+            st.session_state.pop("exclude_selection", None)
+            st.session_state.pop("require_selection", None)
+            _append_live("assistant", "Declined both — kept the updated solution as the new base.")
+            st.rerun()
+    with col_cancel:
+        if st.button("Cancel", key="cancel_btn"):
+            st.session_state["curating"] = False
+            st.session_state.pop("declined_proposal", None)
+            st.session_state.pop("proposed_plan", None)
+            st.session_state.pop("proposed_event", None)
+            st.session_state.pop("proposed_comparison", None)
+            st.session_state.pop("exclude_selection", None)
+            st.session_state.pop("require_selection", None)
+            st.session_state["awaiting_decision"] = False
+            _append_live("assistant", "Recommendation declined.")
+            st.rerun()
+
+    col_left, col_right = st.columns(2)
+    with col_left:
+        st.markdown("**Declined solution**")
+        _render_plan_output(declined, hydrants_df, map_key="cmp_declined")
+    with col_right:
+        st.markdown("**New recommendation**")
+        _render_plan_output(proposed, hydrants_df, map_key="cmp_new")
 
 
 def _render_dialog(hydrants_df):
@@ -212,7 +403,7 @@ def _render_dialog(hydrants_df):
         msg = st.text_input(
             "Describe the situation",
             key="live_dialog_input",
-            placeholder="e.g. 'We need 4000 L/min at 55.664178, 12.607972'",
+            placeholder="e.g. 'We need 800 L/min at 55.664178, 12.607972'",
         )
         submitted = st.form_submit_button("Send", key="live_send_btn")
 
@@ -240,14 +431,14 @@ def _render_sidebar_config(hydrants_df):
             "Model",
             options=list(MODEL_OPTION_LABELS),
             format_func=lambda m: MODEL_OPTION_LABELS[m],
-            index=1,
+            index=2,
             key="model",
         )
 
         if "demand_lpm" not in st.session_state:
             st.session_state["demand_lpm"] = (
                 plan["stated_minimum_flow_l_min"]
-                if plan and plan.get("stated_minimum_flow_l_min") is not None else 4000.0
+                if plan and plan.get("stated_minimum_flow_l_min") is not None else 800.0
             )
         demand = st.number_input("Demand (L/min)", key="demand_lpm", min_value=0.0, step=100.0)
 
@@ -303,22 +494,23 @@ def _render_sidebar_config(hydrants_df):
             st.write(f"**Unavailable:** {', '.join(unavailable) if unavailable else '—'}")
 
 
-def _render_plan_output(plan, hydrants_df):
-    render_result(plan)
+def _render_plan_output(plan, hydrants_df, map_key=None):
+    flow = render_result_header(plan)
     candidates = plan.get("candidates")
-    if candidates is None or candidates.empty:
-        return
-    locs = hydrants_df.set_index("Hydrant")[["Latitude", "Longitude"]]
-    candidates = candidates.join(locs)
-    fire_lat, fire_lon = plan["location"]
-    method = plan.get("distance_method", "gis")
-    graph = st.session_state.get("live_graph")
-    render_hydrant_map(
-        fire_lat, fire_lon, candidates, plan["result"].selected,
-        plan.get("radius") or 500,
-        graph=graph, street_routes=(method == "network"),
-        unavailable=plan.get("unavailable"), hydrants_df=hydrants_df,
-    )
+    if candidates is not None and not candidates.empty:
+        locs = hydrants_df.set_index("Hydrant")[["Latitude", "Longitude"]]
+        candidates = candidates.join(locs)
+        fire_lat, fire_lon = plan["location"]
+        method = plan.get("distance_method", "gis")
+        graph = st.session_state.get("live_graph")
+        render_hydrant_map(
+            fire_lat, fire_lon, candidates, plan["result"].selected,
+            plan.get("radius") or 500,
+            graph=graph, street_routes=(method == "network"),
+            unavailable=plan.get("unavailable"), hydrants_df=hydrants_df,
+            key=map_key,
+        )
+    render_result_body(plan, flow)
 
 
 def _render_recommendation(hydrants_df):
@@ -334,7 +526,7 @@ def _render_recommendation(hydrants_df):
                 st.rerun()
         with col_dec:
             if st.button("Decline", key="live_decline_btn"):
-                _discard()
+                _start_curation()
                 st.rerun()
         _render_plan_output(proposed, hydrants_df)
     elif plan is not None and plan.get("result") is not None:
@@ -342,17 +534,34 @@ def _render_recommendation(hydrants_df):
         _render_plan_output(plan, hydrants_df)
     else:
         st.info("No recommendation yet. Describe the situation in the chat "
-                "(e.g. 'We need 4000 L/min at 55.664178, 12.607972').")
+                "(e.g. 'We need 800 L/min at 55.664178, 12.607972').")
 
 
 def render_workspace(hydrants_df):
     """Render the shared dispatcher workspace (config sidebar + chat + recommendation)."""
     _render_sidebar_config(hydrants_df)
 
-    col_chat, col_output = st.columns([3, 2])
+    curating = st.session_state.get("curating")
+    comparing = curating and st.session_state.get("proposed_plan") is not None
+
+    col_chat, col_output = st.columns([2, 3])
     with col_chat:
         st.subheader("Dialog")
         _render_dialog(hydrants_df)
     with col_output:
         st.subheader("Recommendation")
-        _render_recommendation(hydrants_df)
+        if comparing:
+            st.info("Comparing declined vs new recommendation below.")
+        elif curating:
+            st.info("Adjust preferences below.")
+        else:
+            _render_recommendation(hydrants_df)
+
+    if comparing:
+        _render_comparison(
+            hydrants_df,
+            st.session_state["declined_proposal"],
+            st.session_state["proposed_plan"],
+        )
+    elif curating:
+        _render_curation(hydrants_df)

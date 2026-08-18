@@ -214,6 +214,17 @@ def test_committed_hydrant_stays_locked():
     assert "H1" in {s.hydrant for s in res.selected}
 
 
+def test_committed_lines_are_pinned():
+    # H1 committed with 2 lines. Without pinning, H1(1 line) + H2(2 lines) is
+    # lower-effort; pinning must keep H1 at 2 lines.
+    cand, hyd = make_candidates([("H1", 100.0, 2000.0), ("H2", 50.0, 2000.0)])
+    res = solve_model("C-soft", cand, 3000.0, params=Params(gamma=10000.0),
+                      hydrants_df=hyd, committed={"H1"}, committed_lines={"H1": 2})
+    h1 = next(s for s in res.selected if s.hydrant == "H1")
+    assert h1.lines == 2
+    assert res.demand_met
+
+
 # --- best-achievable with unmet demand -------------------------------------
 
 @pytest.mark.parametrize("model", ["A", "B", "C-soft", "C-hard"])

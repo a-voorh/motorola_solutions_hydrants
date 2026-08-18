@@ -39,7 +39,7 @@ def _send_and_accept(app, message):
     assert not app.exception
 
 
-def _initial_analysis(app, message="We need 4000 L/min", method="gis"):
+def _initial_analysis(app, message="We need 800 L/min", method="gis"):
     _set_location(app, method=method)
     _send_and_accept(app, message)
 
@@ -58,7 +58,7 @@ def test_mode_switch_clears_dialog_keeps_plan():
     at.run()
 
     _set_location(at)
-    _send_and_accept(at, "We need 4000 L/min")
+    _send_and_accept(at, "We need 800 L/min")
     assert "live_messages" in at.session_state and at.session_state["live_messages"]
 
     at.radio(key="app_mode").set_value("Scripts")
@@ -72,7 +72,7 @@ def test_page_switch_clears_dialog_keeps_plan():
     at.run()
 
     _set_location(at)
-    _send_and_accept(at, "We need 4000 L/min")
+    _send_and_accept(at, "We need 800 L/min")
     assert "live_messages" in at.session_state and at.session_state["live_messages"]
 
     at.switch_page("visualization_page.py")
@@ -89,7 +89,7 @@ def test_live_dialog_accept_commits_optimizer_recommendation():
     assert not at.exception
 
     _set_location(at)
-    _send(at, "We need 4000 L/min")
+    _send(at, "We need 800 L/min")
 
     assert at.session_state["awaiting_decision"] is True
     assert at.session_state["proposed_plan"] is not None
@@ -98,17 +98,17 @@ def test_live_dialog_accept_commits_optimizer_recommendation():
     at.run()
 
     assert at.session_state["plan"] is not None
-    assert at.session_state["plan"]["stated_minimum_flow_l_min"] == pytest.approx(4000.0)
+    assert at.session_state["plan"]["stated_minimum_flow_l_min"] == pytest.approx(800.0)
     assert at.session_state["plan"]["selected"]
     assert at.session_state["awaiting_decision"] is False
 
 
-def test_decline_keeps_current_plan():
+def test_decline_enters_curation_and_recompute_excludes():
     at = AppTest.from_file("app.py", default_timeout=120)
     at.run()
 
     _set_location(at)
-    _send_and_accept(at, "We need 4000 L/min")
+    _send_and_accept(at, "We need 800 L/min")
     committed = at.session_state["plan"]
 
     _send(at, "Increase demand to 5000 L/min")
@@ -117,8 +117,36 @@ def test_decline_keeps_current_plan():
     at.button(key="live_decline_btn").click()
     at.run()
 
+    # Entered curation; the committed plan is untouched and no auto-decision runs.
+    assert at.session_state["curating"] is True
     assert at.session_state["plan"] == committed
     assert at.session_state["awaiting_decision"] is False
+    declined = at.session_state["declined_proposal"]
+    assert declined is not None
+
+    committed_ids = set(committed["selected"].keys())
+    added = [h for h in declined["selected"].keys() if h not in committed_ids]
+    assert added  # demand increase must have proposed additional hydrants
+
+    # Exclude the added hydrants, then recompute.
+    at.multiselect(key="exclude_selection").set_value(added)
+    at.button(key="curate_recompute_btn").click()
+    at.run()
+
+    new_proposed = at.session_state["proposed_plan"]
+    assert new_proposed is not None
+    assert set(new_proposed["selected"]).isdisjoint(set(added))
+    for h in committed_ids:
+        assert h in new_proposed["selected"]
+
+    # Accept the new recommendation.
+    at.button(key="accept_new_btn").click()
+    at.run()
+    assert at.session_state["curating"] is False
+    assert at.session_state["awaiting_decision"] is False
+    assert set(at.session_state["plan"]["selected"]).isdisjoint(set(added))
+    for h in committed_ids:
+        assert h in at.session_state["plan"]["selected"]
 
 
 def test_live_dialog_failure_accept_shares_state_with_scripts():
@@ -126,7 +154,7 @@ def test_live_dialog_failure_accept_shares_state_with_scripts():
     at.run()
 
     _set_location(at)
-    _send_and_accept(at, "We need 4000 L/min")
+    _send_and_accept(at, "We need 800 L/min")
 
     failed = next(iter(at.session_state["plan"]["selected"]))
 
@@ -150,7 +178,7 @@ def test_live_dialog_failure_accept_shares_state_with_scripts():
 def test_initial_analysis_sets_plan(app):
     _initial_analysis(app)
     plan = app.session_state["plan"]
-    assert plan["effective_demand"] == 4000 * 1.5
+    assert plan["effective_demand"] == 800 * 1.5
     assert plan["selected"]
     assert plan["unavailable"] == []
     assert plan["objective"] is not None
@@ -194,9 +222,9 @@ def test_unrecognized_update_does_not_change_state(app):
 
 
 def test_initial_analysis_word_form(app):
-    _initial_analysis(app, "We need four thousand L/min")
+    _initial_analysis(app, "We need eight hundred L/min")
     plan = app.session_state["plan"]
-    assert plan["effective_demand"] == 4000 * 1.5
+    assert plan["effective_demand"] == 800 * 1.5
     assert plan["selected"]
 
 
@@ -212,6 +240,8 @@ def test_decimal_word_form(app):
 
 
 def test_objective_includes_connection_time(app):
+    app.selectbox(key="model").set_value("B")
+    app.run()
     _initial_analysis(app)
     plan = app.session_state["plan"]
     expected = sum(s.distance_m / 5.0 + 10.0 for s in plan["result"].selected)
@@ -235,7 +265,7 @@ def test_network_distance_used_by_default(app):
     app.number_input(key="lat").set_value(55.664178)
     app.number_input(key="lon").set_value(12.607972)
     app.run()
-    _send_and_accept(app, "We need 4000 L/min")
+    _send_and_accept(app, "We need 800 L/min")
     plan = app.session_state["plan"]
     assert plan["distance_method"] == "network"
     assert plan["selected"]
@@ -261,7 +291,7 @@ def test_demand_buffer_control(app):
     _initial_analysis(app)
     plan = app.session_state["plan"]
     assert plan["planning_reserve_percent"] == pytest.approx(25.0)
-    assert plan["effective_demand"] == pytest.approx(4000 * 1.25)
+    assert plan["effective_demand"] == pytest.approx(800 * 1.25)
 
 
 def test_location_extraction_fills_config():
@@ -270,7 +300,7 @@ def test_location_extraction_fills_config():
     at.radio(key="distance_method").set_value("gis")
     at.run()
 
-    _send(at, "We need 4000 L/min at 55.664178, 12.607972")
+    _send(at, "We need 800 L/min at 55.664178, 12.607972")
     at.button(key="live_accept_btn").click()
     at.run()
 

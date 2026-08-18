@@ -10,9 +10,9 @@ Public API:
                                -- planning-reserve semantics and status.
 """
 
-from workflow.analysis import analyse_incident, apply_update, process_update, run_initial_analysis
+from workflow.analysis import analyse_incident, apply_update, process_update, recompute_plan, run_initial_analysis
 from workflow.compare import compare_models
-from workflow.plan import _capacity_of, _plan_objective
+from workflow.plan import _capacity_of, _plan_objective, _plan_summary_text
 from workflow.planning import flow_status_lines, planning_target_flow, summarize_flow
 from workflow.scenario import apply_scenario_message, run_scenario
 
@@ -21,6 +21,7 @@ __all__ = [
     "run_initial_analysis",
     "apply_update",
     "process_update",
+    "recompute_plan",
     "compare_models",
     "planning_target_flow",
     "summarize_flow",
@@ -29,4 +30,5 @@ __all__ = [
     "run_scenario",
     "_capacity_of",
     "_plan_objective",
+    "_plan_summary_text",
 ]

@@ -73,12 +73,12 @@ def test_request_message_is_parser_ready():
 def test_extract_location_parses_coordinates():
     from extraction import extract_location
 
-    assert extract_location("We need 4000 L/min at 55.664178, 12.607972") == (55.664178, 12.607972)
+    assert extract_location("We need 800 L/min at 55.664178, 12.607972") == (55.664178, 12.607972)
     assert extract_location("at 55.66; 12.61") == (55.66, 12.61)
     assert extract_location("55.664178 12.607972") == (55.664178, 12.607972)
     assert extract_location("lat 55.66 lon 12.61") == (55.66, 12.61)
     assert extract_location("lat: 55.664178, lon: 12.607972") == (55.664178, 12.607972)
-    assert extract_location("We need 4000 L/min") is None
+    assert extract_location("We need 800 L/min") is None
     assert extract_location("") is None
 
 

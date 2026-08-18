@@ -56,7 +56,8 @@ def build_candidates(lat, lon, demand, hydrants_df,
                      params=None,
                      distance_method="gis",
                      model="B",
-                     graph=None):
+                     graph=None,
+                     candidate_margin=0.0):
     """Sweep radii and return ``(radius, candidates, sufficient)``.
 
     Finds the smallest radius whose sum of candidate capacity (per ``model``:
@@ -64,6 +65,12 @@ def build_candidates(lat, lon, demand, hydrants_df,
     ``max_radius``, returns the max-radius candidate set with
     ``sufficient=False`` (so the solver can still return a best-achievable
     plan with positive unmet demand).
+
+    ``candidate_margin`` widens the returned candidate pool (and reported
+    radius) by that many metres past the covering radius, capped at
+    ``max_radius``. The covering radius still decides ``sufficient``; the
+    margin only keeps extra nearby hydrants available (e.g. for the dispatcher
+    to force-include).
     """
     params = params or Params()
 
@@ -77,7 +84,8 @@ def build_candidates(lat, lon, demand, hydrants_df,
         while radius <= max_radius:
             within = full[full["Distance_m"] <= radius]
             if _max_deliverable_sum(within, params, model) >= demand:
-                return radius, within, True
+                eff = min(radius + candidate_margin, max_radius)
+                return eff, full[full["Distance_m"] <= eff], True
             radius += radius_step
         at_max = full[full["Distance_m"] <= max_radius]
         return max_radius, at_max, False
@@ -86,7 +94,8 @@ def build_candidates(lat, lon, demand, hydrants_df,
     while radius <= max_radius:
         near = _nearby(lat, lon, radius, hydrants_df, distance_method)
         if _max_deliverable_sum(near, params, model) >= demand:
-            return radius, near, True
+            eff = min(radius + candidate_margin, max_radius)
+            return eff, _nearby(lat, lon, eff, hydrants_df, distance_method), True
         radius += radius_step
     at_max = _nearby(lat, lon, max_radius, hydrants_df, distance_method)
     return max_radius, at_max, False
