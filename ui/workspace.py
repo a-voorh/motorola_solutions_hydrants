@@ -353,9 +353,12 @@ def _render_comparison(hydrants_df, declined, proposed):
             st.rerun()
     with col_both:
         if st.button("Decline both", key="decline_both_btn"):
-            st.session_state.pop("proposed_plan", None)
+            st.session_state["declined_proposal"] = st.session_state.pop("proposed_plan", None)
             st.session_state.pop("proposed_event", None)
             st.session_state.pop("proposed_comparison", None)
+            st.session_state.pop("exclude_selection", None)
+            st.session_state.pop("require_selection", None)
+            _append_live("assistant", "Declined both — kept the updated solution as the new base.")
             st.rerun()
     with col_cancel:
         if st.button("Cancel", key="cancel_btn"):
