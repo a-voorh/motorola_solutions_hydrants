@@ -10,7 +10,9 @@ commits it as the active ``plan``, Decline discards it. Both modes share the
 same ``st.session_state`` objects.
 """
 
+import requests
 import streamlit as st
+from ui.transcriptReader import parse_with_openai, geocode_location
 
 from domain import CARRIED_PIECES, DEFAULT_RADIUS_EXTENSION_M, MODEL_OPTION_LABELS, IncidentRequest
 from extraction import detect_update, extract_location
@@ -111,7 +113,7 @@ def _run_update(plan, message, hydrants_df):
 
 
 def propose_from_message(message, hydrants_df, location=None):
-    """Interpret a message, run the optimizer, and stage a proposal.
+    """Interpret a message using OpenAI, run the optimizer, and stage a proposal.
 
     Returns the human-readable interpretation summary. The optimizer result is
     stored in ``st.session_state["proposed_plan"]`` (with its comparison/event);
@@ -119,8 +121,47 @@ def propose_from_message(message, hydrants_df, location=None):
     accept or decline.
     """
     _append_live("user", message)
-    facts = detect_update(message)
-    loc = location or extract_location(message)
+
+    api_lat, api_lon, api_flow = None, None, 0.0
+
+    print(f"\n[DEBUG 1] Starting parse_with_openai for: '{message}'", flush=True)
+    st.write(f"🔍 Parsing message: `{message}`")
+
+    try:
+        parsed = parse_with_openai(message)
+        print(f"[DEBUG 2] Raw parsed object: {parsed}", flush=True)
+        st.write(f"📋 Parsed raw result: `{parsed}`")
+
+        # Use the actual attribute names defined in ParsedMessage
+        # (or fallback safely using getattr)
+        api_lat = getattr(parsed, "latitude", None) or getattr(parsed, "x", None)
+        api_lon = getattr(parsed, "longitude", None) or getattr(parsed, "y", None)
+        api_flow = getattr(parsed, "water_lpm", 0.0) or getattr(parsed, "w", 0.0)
+        loc_name = getattr(parsed, "location_name", None)
+
+        print(f"[DEBUG 3] Extracted values -> Lat: {api_lat}, Lon: {api_lon}, Flow: {api_flow}, Place: {loc_name}", flush=True)
+
+        # Geocode if coordinates are missing but a place name exists
+        if (api_lat is None or api_lon is None) and loc_name:
+            print(f"[DEBUG 4] Geocoding place name: '{loc_name}'", flush=True)
+            try:
+                api_lat, api_lon = geocode_location(loc_name)
+                print(f"[DEBUG 5] Geocoding success: ({api_lat}, {api_lon})", flush=True)
+            except Exception as geo_err:
+                print(f"[DEBUG 5 Error] Geocode failed: {geo_err}", flush=True)
+                st.warning(f"Could not geocode location '{loc_name}': {geo_err}")
+
+    except Exception as e:
+        print(f"[DEBUG ERROR] OpenAI parsing failed: {e}", flush=True)
+        st.error(f"OpenAI parsing failed: {e}")
+        # Note: Do not let errors fail silently
+
+    # 2. Determine target incident coordinates
+    if api_lat is not None and api_lon is not None:
+        loc = (api_lat, api_lon)
+    else:
+        loc = location or extract_location(message)
+
     plan = st.session_state.get("plan")
 
     if loc:
@@ -136,41 +177,14 @@ def propose_from_message(message, hydrants_df, location=None):
     proposed = None
     comparison = None
     event = None
-    covered = False
-
-    if facts.failure:
-        if plan is None:
-            summary = "No active incident yet — describe the situation first."
+    # 3. Handle analysis triggers based on parsed water demand and location
+    if api_flow > 0:
+        fb = _fallback_location()
+        if fb is None:
+            summary = "Set a location (or include coordinates/landmarks) before requesting a flow."
         else:
-            proposed, event, error = _run_update(plan, message, hydrants_df)
-            summary = f"Hydrant {facts.hydrant} out of service" if not error else "Could not apply the update."
-    elif facts.stated and facts.demand_phrase:
-        if plan is None:
-            summary = "No active incident yet — describe the situation first."
-        else:
-            proposed, event, error = _run_update(plan, message, hydrants_df)
-            if error:
-                summary = "Could not apply the update."
-            elif event and event.get("covered"):
-                covered = True
-                st.session_state["plan"] = proposed
-                st.session_state["event_log"] = st.session_state.get("event_log", []) + [event]
-                if proposed.get("stated_minimum_flow_l_min") is not None:
-                    _seed_config(demand=proposed["stated_minimum_flow_l_min"])
-                summary = (f"New demand {facts.flow:g} L/min — already covered by the "
-                           "current plan; all is well, nothing to do.")
-            else:
-                summary = f"New demand {facts.flow:g} L/min"
-    elif facts.stated:
-        if plan is None:
-            fb = _fallback_location()
-            if fb is None:
-                summary = "Set a location (or include coordinates) before requesting a flow."
-            else:
-                proposed, event, comparison = _run_analysis(facts.flow, fb[0], fb[1], hydrants_df)
-                summary = f"Initial request {facts.flow:g} L/min"
-        else:
-            summary = "Flow stated but not a demand update — say 'increase demand to …' to change it."
+            proposed, event, comparison = _run_analysis(api_flow, fb[0], fb[1], hydrants_df)
+            summary = f"Initial request {api_flow:g} L/min at {fb[0]:.4f}, {fb[1]:.4f}"
     elif loc:
         if plan is not None and plan.get("stated_minimum_flow_l_min") is not None:
             proposed, event, comparison = _run_analysis(
@@ -182,13 +196,18 @@ def propose_from_message(message, hydrants_df, location=None):
     else:
         summary = "No configuration change detected."
 
-    if proposed is not None and not covered:
+    # 4. Save and stage the proposal for decision
+    if proposed is not None:
         st.session_state["proposed_plan"] = proposed
         st.session_state["proposed_comparison"] = comparison
         st.session_state["proposed_event"] = event
     st.session_state["awaiting_decision"] = proposed is not None and not covered
 
     _append_live("assistant", summary)
+    print('Summary')
+    if loc:
+        print(f"[DEBUG] Location (lat, lon): {loc}")
+    print(f"[DEBUG] Water flow (L/min): {api_flow}")
     return summary
 
 
@@ -408,6 +427,7 @@ def _render_dialog(hydrants_df):
         submitted = st.form_submit_button("Send", key="live_send_btn")
 
     if submitted and msg:
+        print(msg)
         propose_from_message(msg, hydrants_df)
         st.rerun()
 
