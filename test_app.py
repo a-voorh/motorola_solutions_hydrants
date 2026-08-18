@@ -240,6 +240,8 @@ def test_decimal_word_form(app):
 
 
 def test_objective_includes_connection_time(app):
+    app.selectbox(key="model").set_value("B")
+    app.run()
     _initial_analysis(app)
     plan = app.session_state["plan"]
     expected = sum(s.distance_m / 5.0 + 10.0 for s in plan["result"].selected)

@@ -29,7 +29,7 @@ _DISTANCE_LABELS = {
 def _settings():
     """Read the shared operational settings (with defaults)."""
     return {
-        "model": st.session_state.get("model", "B"),
+        "model": st.session_state.get("model", "C-soft"),
         "reserve": st.session_state.get("planning_reserve", 50.0),
         "distance_method": st.session_state.get("distance_method", "network"),
         "start_radius": st.session_state.get("start_radius", 30),
@@ -431,7 +431,7 @@ def _render_sidebar_config(hydrants_df):
             "Model",
             options=list(MODEL_OPTION_LABELS),
             format_func=lambda m: MODEL_OPTION_LABELS[m],
-            index=1,
+            index=2,
             key="model",
         )
 
