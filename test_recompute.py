@@ -133,3 +133,33 @@ def test_recompute_requires_hydrant():
     assert "H2" in new["selected"]      # forced in
     assert "H1" in new["selected"]      # still needed to meet demand
     assert new["result"].demand_met
+
+
+def test_initial_analysis_keeps_candidate_margin():
+    # H2 sits 80 m away: outside the 30 m covering radius, inside the +100 m
+    # candidate margin, so it is a candidate (for force-include) but not selected.
+    dlat = 80.0 / 111320.0
+    hydrants = pd.DataFrame({
+        "Hydrant": ["H1", "H2"],
+        "Latitude": [55.6, 55.6 + dlat],
+        "Longitude": [12.5, 12.5],
+        "Capacity_L_min": [1000.0, 100.0],
+        "Available": [True, True],
+    })
+
+    request = IncidentRequest(transcript="We need 1000 L/min",
+                              location=(55.6, 12.5), planning_reserve_percent=0.0)
+    plan, _e, _c = analyse_incident(
+        request, hydrants, "B", Params(),
+        max_radius=1500, distance_method="manhattan",
+    )
+    assert set(plan["selected"]) == {"H1"}
+    assert "H2" in plan["candidates"].index  # kept by the default +100 m margin
+    assert plan["radius"] >= 80.0
+
+    # With no margin, H2 is dropped from the candidate pool.
+    no_margin, _e, _c = analyse_incident(
+        request, hydrants, "B", Params(),
+        max_radius=1500, candidate_margin=0, distance_method="manhattan",
+    )
+    assert "H2" not in no_margin["candidates"].index

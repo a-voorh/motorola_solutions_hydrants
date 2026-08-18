@@ -285,15 +285,10 @@ def _recompute_from_decline(hydrants_df):
 
 
 def _render_curation(hydrants_df):
-    """Curation (exclude/force-include) and declined-vs-new comparison panels."""
+    """Curation panel: exclude / force-include multiselects + recompute."""
     declined = st.session_state.get("declined_proposal")
     if declined is None:
         st.session_state["curating"] = False
-        return
-
-    proposed = st.session_state.get("proposed_plan")
-    if proposed is not None:
-        _render_comparison(hydrants_df, declined, proposed)
         return
 
     st.subheader("Declined recommendation — adjust")
@@ -482,8 +477,12 @@ def _render_recommendation(hydrants_df):
     plan = st.session_state.get("plan")
 
     if st.session_state.get("curating"):
-        _render_curation(hydrants_df)
-    elif proposed is not None:
+        # Comparison (when a new proposal exists) is rendered full-width below
+        # by render_workspace; here only the pre-recompute curation panel.
+        if proposed is None:
+            _render_curation(hydrants_df)
+        return
+    if proposed is not None:
         st.subheader("Proposed recommendation")
         col_acc, col_dec = st.columns(2)
         with col_acc:
@@ -507,10 +506,25 @@ def render_workspace(hydrants_df):
     """Render the shared dispatcher workspace (config sidebar + chat + recommendation)."""
     _render_sidebar_config(hydrants_df)
 
+    comparing = (
+        st.session_state.get("curating")
+        and st.session_state.get("proposed_plan") is not None
+    )
+
     col_chat, col_output = st.columns([3, 2])
     with col_chat:
         st.subheader("Dialog")
         _render_dialog(hydrants_df)
     with col_output:
         st.subheader("Recommendation")
-        _render_recommendation(hydrants_df)
+        if comparing:
+            st.info("Comparing declined vs new recommendation below.")
+        else:
+            _render_recommendation(hydrants_df)
+
+    if comparing:
+        _render_comparison(
+            hydrants_df,
+            st.session_state["declined_proposal"],
+            st.session_state["proposed_plan"],
+        )

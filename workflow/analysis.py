@@ -9,6 +9,7 @@ import copy
 import pandas as pd
 
 from domain import (
+    DEFAULT_CANDIDATE_MARGIN_M,
     DEFAULT_MAX_RADIUS,
     DEFAULT_PLANNING_RESERVE_PERCENT,
     DEFAULT_RADIUS_EXTENSION_M,
@@ -36,11 +37,14 @@ def analyse_incident(request, hydrants_df, model="B", params=None, *,
                      start_radius=DEFAULT_START_RADIUS,
                      radius_step=DEFAULT_RADIUS_STEP,
                      max_radius=DEFAULT_MAX_RADIUS,
+                     candidate_margin=DEFAULT_CANDIDATE_MARGIN_M,
                      distance_method="gis", graph=None):
     """Analyse one incident request -> (plan, event, comparison).
 
     ``request`` carries the raw transcript, location, and planning-reserve
     percentage. The stated minimum flow is extracted from the transcript here.
+    ``candidate_margin`` keeps extra nearby hydrants in the candidate pool past
+    the covering radius (for the dispatcher to force-include later).
     """
     if model not in MODEL_NAMES:
         raise ValueError(f"Unknown model {model!r}")
@@ -79,7 +83,7 @@ def analyse_incident(request, hydrants_df, model="B", params=None, *,
     demand = planning_target_flow(flow, reserve)
     radius, candidates, sufficient = build_candidates(
         lat, lon, demand, hydrants_df, start_radius, radius_step, max_radius,
-        params, distance_method, model, graph,
+        params, distance_method, model, graph, candidate_margin,
     )
     result = solve_model(model, candidates, demand, params, hydrants_df,
                          radius=radius, distance_method=distance_method)
