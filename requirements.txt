@@ -1,0 +1,11 @@
+streamlit
+scipy
+pandas
+numpy
+nbformat
+geopy
+networkx
+scikit-learn
+folium
+streamlit-folium
+osmnx
