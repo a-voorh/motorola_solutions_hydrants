@@ -196,3 +196,39 @@ def test_recompute_keeps_candidate_margin():
                               distance_method="manhattan", max_radius=1500,
                               radius_extension=0, candidate_margin=0)
     assert "H2" not in unpadded["candidates"].index
+
+
+def test_covered_demand_update_is_metadata_only():
+    # H1 (2000 L/min) alone covers the initial 1000 L/min request.
+    hydrants = pd.DataFrame({
+        "Hydrant": ["H1"],
+        "Latitude": [55.6],
+        "Longitude": [12.5],
+        "Capacity_L_min": [2000.0],
+        "Available": [True],
+    })
+    request = IncidentRequest(transcript="We need 1000 L/min",
+                              location=(55.6, 12.5), planning_reserve_percent=0.0)
+    plan, _e, _c = analyse_incident(
+        request, hydrants, "B", Params(),
+        max_radius=1500, distance_method="manhattan",
+    )
+    assert set(plan["selected"]) == {"H1"}
+
+    # Increase demand to 1500 L/min — still covered by H1 (2000 >= 1500).
+    new, det, status = apply_update(
+        plan, "Increase demand to 1500 L/min", hydrants, "B",
+        max_radius=1500, radius_extension=0, distance_method="manhattan",
+    )
+    assert status == "covered"
+    assert set(new["selected"]) == {"H1"}                 # config unchanged
+    assert new["stated_minimum_flow_l_min"] == pytest.approx(1500.0)
+    assert new["result"].demand_served == pytest.approx(1500.0)
+    assert new["result"].demand_met is True
+
+    # An increase beyond capacity must still recompute (not "covered").
+    bigger, det, status2 = apply_update(
+        plan, "Increase demand to 3000 L/min", hydrants, "B",
+        max_radius=1500, radius_extension=0, distance_method="manhattan",
+    )
+    assert status2 is None

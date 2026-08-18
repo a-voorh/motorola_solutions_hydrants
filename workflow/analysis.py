@@ -18,10 +18,11 @@ from domain import (
     MODEL_NAMES,
     IncidentRequest,
     Params,
+    flow_tolerance,
 )
 from extraction import detect_update, extract_flow
 from routing import _ensure_committed, _nearby, build_candidates
-from solver import solve_model
+from solver import build_recommendation, solve_model
 from workflow.compare import compare_models
 from workflow.plan import (
     _candidate_pool,
@@ -159,9 +160,12 @@ def recompute_plan(plan, hydrants_df, model=None, params=None, *,
     if res is None:
         survivors = set()
         total_pieces = 0
+        committed_lines = {}
     else:
         survivors = {s.hydrant for s in res.selected if s.hydrant not in unavailable}
         total_pieces = plan.get("committed_pieces") or 0
+        committed_lines = {s.hydrant: s.lines for s in res.selected
+                           if s.hydrant in survivors and s.lines}
 
     # Hose still committed from failed hydrants (kept while not recoverable).
     # Count each surviving hydrant's TOTAL pieces across its parallel lines so a
@@ -196,6 +200,7 @@ def recompute_plan(plan, hydrants_df, model=None, params=None, *,
     committed = survivors | required
     result = solve_model(model_name, candidates, demand, params, hydrants_df,
                          committed=committed,
+                         committed_lines=committed_lines,
                          failed_pieces=failed_pieces,
                          radius=radius, distance_method=distance_method)
 
@@ -256,6 +261,22 @@ def apply_update(plan, message, hydrants_df, model=None, params=None,
                             if new["selected"] else None)
         return new, det, None
 
+    # A pure demand increase already covered by the deployed configuration needs
+    # no recompute: update the plan's metadata only and signal "covered".
+    if demand_update and not failed:
+        res = plan.get("result")
+        target = new["effective_demand"]
+        if res is not None and res.total_effective_capacity >= target - flow_tolerance(target):
+            new_res = new["result"]
+            new_res.demand = target
+            new_res.demand_served = target
+            new_res.unmet_demand = 0.0
+            new_res.demand_met = True
+            new_res.recommendation = build_recommendation(new_res)
+            new.update(summarize_flow(new["stated_minimum_flow_l_min"], reserve, target))
+            new["insufficient"] = False
+            return new, det, "covered"
+
     # --- demand known: recompute with committed survivors locked ---
     new = recompute_plan(new, hydrants_df, model_name, params,
                          start_radius=start_radius, radius_step=radius_step,
@@ -278,8 +299,20 @@ def process_update(plan, message, hydrants_df, model=None, params=None,
         max_radius, radius_extension, planning_reserve_percent, distance_method,
         graph,
     )
-    if error:
+    if error == "unrecognized":
         return None, None, error
+    if error == "covered":
+        event = {
+            "kind": "demand",
+            "message": message,
+            "flow": det.flow if det.stated else None,
+            "hydrant": det.hydrant,
+            "retained": list(plan["selected"].keys()),
+            "added": [],
+            "covered": True,
+            "summary": _plan_summary_text(new),
+        }
+        return new, event, None
 
     retained = [h for h in plan["selected"] if h in new["selected"]]
     added = [h for h in new["selected"] if h not in plan["selected"]]

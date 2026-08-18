@@ -15,7 +15,7 @@ import streamlit as st
 from domain import CARRIED_PIECES, DEFAULT_RADIUS_EXTENSION_M, MODEL_OPTION_LABELS, IncidentRequest
 from extraction import detect_update, extract_location
 from graph_cache import get_graph
-from ui.components import render_result
+from ui.components import render_result_body, render_result_header
 from ui.map import render_hydrant_map, render_selection_map
 from workflow import analyse_incident, process_update, recompute_plan, _plan_summary_text
 
@@ -136,6 +136,7 @@ def propose_from_message(message, hydrants_df, location=None):
     proposed = None
     comparison = None
     event = None
+    covered = False
 
     if facts.failure:
         if plan is None:
@@ -148,7 +149,18 @@ def propose_from_message(message, hydrants_df, location=None):
             summary = "No active incident yet — describe the situation first."
         else:
             proposed, event, error = _run_update(plan, message, hydrants_df)
-            summary = f"New demand {facts.flow:g} L/min" if not error else "Could not apply the update."
+            if error:
+                summary = "Could not apply the update."
+            elif event and event.get("covered"):
+                covered = True
+                st.session_state["plan"] = proposed
+                st.session_state["event_log"] = st.session_state.get("event_log", []) + [event]
+                if proposed.get("stated_minimum_flow_l_min") is not None:
+                    _seed_config(demand=proposed["stated_minimum_flow_l_min"])
+                summary = (f"New demand {facts.flow:g} L/min — already covered by the "
+                           "current plan; all is well, nothing to do.")
+            else:
+                summary = f"New demand {facts.flow:g} L/min"
     elif facts.stated:
         if plan is None:
             fb = _fallback_location()
@@ -170,11 +182,11 @@ def propose_from_message(message, hydrants_df, location=None):
     else:
         summary = "No configuration change detected."
 
-    if proposed is not None:
+    if proposed is not None and not covered:
         st.session_state["proposed_plan"] = proposed
         st.session_state["proposed_comparison"] = comparison
         st.session_state["proposed_event"] = event
-    st.session_state["awaiting_decision"] = proposed is not None
+    st.session_state["awaiting_decision"] = proposed is not None and not covered
 
     _append_live("assistant", summary)
     return summary
@@ -483,22 +495,22 @@ def _render_sidebar_config(hydrants_df):
 
 
 def _render_plan_output(plan, hydrants_df, map_key=None):
-    render_result(plan)
+    flow = render_result_header(plan)
     candidates = plan.get("candidates")
-    if candidates is None or candidates.empty:
-        return
-    locs = hydrants_df.set_index("Hydrant")[["Latitude", "Longitude"]]
-    candidates = candidates.join(locs)
-    fire_lat, fire_lon = plan["location"]
-    method = plan.get("distance_method", "gis")
-    graph = st.session_state.get("live_graph")
-    render_hydrant_map(
-        fire_lat, fire_lon, candidates, plan["result"].selected,
-        plan.get("radius") or 500,
-        graph=graph, street_routes=(method == "network"),
-        unavailable=plan.get("unavailable"), hydrants_df=hydrants_df,
-        key=map_key,
-    )
+    if candidates is not None and not candidates.empty:
+        locs = hydrants_df.set_index("Hydrant")[["Latitude", "Longitude"]]
+        candidates = candidates.join(locs)
+        fire_lat, fire_lon = plan["location"]
+        method = plan.get("distance_method", "gis")
+        graph = st.session_state.get("live_graph")
+        render_hydrant_map(
+            fire_lat, fire_lon, candidates, plan["result"].selected,
+            plan.get("radius") or 500,
+            graph=graph, street_routes=(method == "network"),
+            unavailable=plan.get("unavailable"), hydrants_df=hydrants_df,
+            key=map_key,
+        )
+    render_result_body(plan, flow)
 
 
 def _render_recommendation(hydrants_df):
@@ -532,7 +544,7 @@ def render_workspace(hydrants_df):
     curating = st.session_state.get("curating")
     comparing = curating and st.session_state.get("proposed_plan") is not None
 
-    col_chat, col_output = st.columns([3, 2])
+    col_chat, col_output = st.columns([2, 3])
     with col_chat:
         st.subheader("Dialog")
         _render_dialog(hydrants_df)

@@ -20,6 +20,8 @@ def describe_event(e):
             return "No minimum flow stated — recommending nearest hydrant"
         return f"Initial request: {e['flow']:g} L/min"
     if kind == "demand":
+        if e.get("covered"):
+            return f"Request update to {e['flow']:g} L/min — already covered, no change"
         return f"Request update to {e['flow']:g} L/min"
     if kind == "failure":
         return f"Hydrant {e['hydrant']} marked unavailable"
@@ -66,19 +68,32 @@ def render_flow_status(flow):
             st.success(line)
 
 
-def render_result(plan):
-    """Render a plan's selected-model recommendation."""
+def render_result_header(plan):
+    """Render the recommendation subheader + flow-status lines; returns the flow dict."""
     result = plan["result"]
     st.subheader(f"Recommendation — {result.model}: {MODEL_LABELS[result.model]}")
 
     stated = plan.get("stated_minimum_flow_l_min")
     if stated is None:
-        st.info(result.recommendation)
-        return
+        return None
 
     reserve_pct = plan.get("planning_reserve_percent", 0.0)
     flow = summarize_flow(stated, reserve_pct, result.demand_served)
     render_flow_status(flow)
+    return flow
+
+
+def render_result_body(plan, flow=None):
+    """Render the metrics table, selected-hydrant table, hose info, and summary."""
+    result = plan["result"]
+    stated = plan.get("stated_minimum_flow_l_min")
+    if stated is None:
+        st.info(result.recommendation)
+        return
+
+    if flow is None:
+        reserve_pct = plan.get("planning_reserve_percent", 0.0)
+        flow = summarize_flow(stated, reserve_pct, result.demand_served)
 
     st.markdown(
         "| Metric | Value |\n"
@@ -110,6 +125,12 @@ def render_result(plan):
         st.write("Hose inventory: not applicable")
 
     st.info(result.recommendation)
+
+
+def render_result(plan):
+    """Render a plan's selected-model recommendation (header + body)."""
+    flow = render_result_header(plan)
+    render_result_body(plan, flow)
 
 
 def comparison_rows(results, stated_minimum, reserve_percent):
