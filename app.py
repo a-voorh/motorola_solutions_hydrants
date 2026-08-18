@@ -3,6 +3,7 @@
 Run:
 
     pip install streamlit scipy pandas numpy nbformat
+    pip install geopy networkx osmnx folium streamlit-folium
     streamlit run app.py
 
 The top nav exposes the App (dispatcher workspace with Live Dialog / Scripts
