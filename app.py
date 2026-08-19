@@ -1,4 +1,4 @@
-"""Hydrant recommender: top-level entry point with a top navigation bar.
+"""Water Supply Assistant: top-level entry point with a top navigation bar.
 
 Run:
 
@@ -22,11 +22,11 @@ from ui.live_dialog import render_live_dialog
 from ui.scripts import render_scripts
 from ui.workspace import clear_dialog
 
-st.set_page_config(page_title="Hydrant recommender", layout="wide")
+st.set_page_config(page_title="Water Supply Assistant", layout="wide")
 
 
 def app_page():
-    st.title("Hydrant recommender")
+    st.title("Water Supply Assistant")
 
     hydrants_df = get_hydrants()
 

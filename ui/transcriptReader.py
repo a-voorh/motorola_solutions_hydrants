@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI(title="Firefighter Dispatch Parser API")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 開發階段允許所有來源，生產環境可指定網站網址
+    allow_origins=["*"],  # Restrict this to the deployed UI origin in production.
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -27,9 +27,8 @@ def _secret(name):
 
 
 OPENAI_API_KEY = _secret("OPENAI_API_KEY")
-app = FastAPI(title="Firefighter Dispatch Parser API")
 
-# 1. 結構化資料模型
+# 1. Structured data model
 class ParsedMessage(BaseModel):
     message_type: str = Field(
         default="chatter",
@@ -85,50 +84,47 @@ class APIResponse(BaseModel):
     clarification_needed: bool = Field(False, description="Whether clarification is needed")
     clarification: Optional[str] = Field(None, description="Clarification question")
 
-# 2. 地理編碼函式
+# 2. Geocoding
 def geocode_location(query: str) -> Tuple[float, float]:
     url = "https://nominatim.openstreetmap.org/search"
-    headers = {"User-Agent": "FirefighterDispatchApp/1.0"}
+    headers = {"User-Agent": "WaterSupplyAssistant/1.0"}
     params = {
         "q": query, 
         "format": "json", 
         "limit": 1
     }
     
-    resp = requests.get(url, params=params, headers=headers)
+    resp = requests.get(url, params=params, headers=headers, timeout=10)
+    resp.raise_for_status()
     data = resp.json()
     if not data:
         raise ValueError(f"Could not geocode location: {query}")
     return float(data[0]["lat"]), float(data[0]["lon"])
 
-# 3. 系統提示詞（特別強化錯字自動校正與在地縮寫轉換）
+# 3. System prompt
 SYSTEM_PROMPT = (
-    "You are an assistant for a fire department dispatch system in the Copenhagen / Denmark metropolitan area.\n"
-    "Your job is to interpret noisy, informal, typo-filled fire-dispatch radio messages and extract exact coordinates (or landmark name), water requirement, and operational updates.\n"
-    "Classify each message as exactly one of: initial_request, demand_update, hydrant_failure, failure_and_demand, chatter.\n"
-    "Use the intended meaning, not exact wording. Correct ordinary speech-recognition errors, spelling mistakes, missing punctuation, abbreviations, and minor word-order problems.\n"
-    "Examples of failure messages include: 'H0479 is out of service', 'hydrant 0479 has gone bad', 'we lost hydrant 479', '479 is dead', 'H 0479 not working', 'hydrant four seven nine is unavailable', and misspellings such as 'out of servce' or 'unavailble'. Normalize every supported form to 'H0479'.\n"
-    "A demand_update is an absolute new total. Accept forms such as 'increase demand to 5000 L/min', 'raise the water requirement to five thousand', 'we now need 5000', 'make that 5000 litres per minute', and 'bump the requirement up to 5000'. Do NOT treat 'increase demand by 5000' or 'add another 5000' as an absolute update.\n"
-    "Restoration messages such as 'back in service', 'repaired', or 'available again' are not supported and must be chatter.\n"
-    "Update messages may omit location because the caller supplies the active incident location. Never invent missing coordinates, hydrant IDs, or demand. If a state-changing message is ambiguous about the hydrant or absolute demand, set clarification_needed=true, provide a short clarification question, and do not create an operational action.\n\n"
-    "Location Parsing & Typo Resolution Rules:\n"
-    "1. If explicit coordinates (lat, lon) are given, use them.\n"
-    "2. If landmarks, stations, streets, or squares are mentioned, ALWAYS normalize and correct typos and abbreviations into their full official Danish or English names, appending city context (e.g. ', Copenhagen') if helpful for geocoding.\n"
-    "   - Typo examples: 'Kogens nytory' / 'Kongens Nytorf' -> 'Kongens Nytorv, Copenhagen'\n"
-    "   - Abbreviation examples: 'KBH H' / 'Central Station' -> 'København H, Copenhagen'\n"
-    "   - Local landmark examples: 'Bella Center' -> 'Bella Center, Copenhagen'\n\n"
-    "   - try search online or translate English-Danish: 'War Museum' -> 'Krigsmuseet, Copenhagen'\n\n"
-    "Water Flow Rate Rules (w):\n"
-    "1. Always output in Liters per minute (L/min).\n"
-    "2. If a number is given without units (e.g. 'need 4000'), assume it is L/min.\n"
-    "3. If given in Gallons (e.g. '1000 Gal/min'), convert to Liters (1 Gallon = 3.78541 L).\n"
-    "4. If no water requirement is mentioned, set water_lpm to 0."
+    "You interpret noisy, informal fire-dispatch messages for the Copenhagen / Denmark metropolitan area.\n"
+    "Extract only facts supported by the message. Correct ordinary speech-recognition errors, spelling mistakes, abbreviations, missing punctuation, and minor word-order problems, but never invent a location, hydrant ID, or water requirement.\n\n"
+    "Classify the message as exactly one of: initial_request, demand_update, hydrant_failure, failure_and_demand, chatter.\n"
+    "- initial_request: a new incident request containing a water requirement, optionally with a location.\n"
+    "- demand_update: an absolute replacement total for an active incident, such as 'increase demand to 5000 L/min' or 'we now need five thousand'.\n"
+    "- hydrant_failure: an explicitly unavailable hydrant, such as 'H0479 is out of service', 'we lost hydrant 479', or 'hydrant four seven nine is not working'. Normalize the ID to H0479.\n"
+    "- failure_and_demand: one message explicitly reports both an unavailable hydrant and an absolute new demand.\n"
+    "- chatter: greetings, status information, restoration reports, unsupported requests, or messages with no safe operational action.\n\n"
+    "A demand update is always an absolute new total. 'Increase by 5000', 'add another 5000', or similar relative wording is not an absolute total: set clarification_needed=true, ask whether 5000 is the new total, and do not create an operational action.\n"
+    "Restoration messages such as 'back in service', 'repaired', or 'available again' are unsupported and must be chatter.\n"
+    "Update messages may omit a location because the active incident supplies it. If a state-changing message is ambiguous about the hydrant or absolute demand, set clarification_needed=true, provide one short clarification question, and leave the uncertain fields empty.\n\n"
+    "Location rules:\n"
+    "1. If explicit decimal coordinates are provided, return them as latitude and longitude.\n"
+    "2. Otherwise, normalize a landmark, station, street, or square into a useful geocoder query in its full Danish or English form, adding ', Copenhagen' when helpful. Do not fabricate coordinates.\n"
+    "3. Examples: 'Kogens nytory' or 'Kongens Nytorf' -> 'Kongens Nytorv, Copenhagen'; 'KBH H' or 'Central Station' -> 'København H, Copenhagen'; 'War Museum' -> 'Krigsmuseet, Copenhagen'.\n\n"
+    "Water requirements must be returned in water_lpm. A bare number is L/min. Convert US gallons per minute using 1 US gallon = 3.78541 liters. If no requirement is mentioned, return 0."
 )
 
 def parse_with_openai(message: str) -> ParsedMessage:
     from openai import OpenAI
-    
-    client = OpenAI(api_key=OPENAI_API_KEY)
+
+    client = OpenAI(api_key=OPENAI_API_KEY, timeout=20.0, max_retries=1)
     completion = client.beta.chat.completions.parse(
         model="gpt-5.6",
         messages=[
@@ -139,7 +135,7 @@ def parse_with_openai(message: str) -> ParsedMessage:
     )
     return completion.choices[0].message.parsed
 
-# 4. API 路由
+# 4. API routes
 @app.get("/")
 def root():
     return {"status": "online", "current_provider": "openai", "docs": "/docs"}
