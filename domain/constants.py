@@ -72,6 +72,73 @@ MODEL_OPTION_LABELS = {
     "C-hard": "Inventory-aware — C-hard (fixed inventory)",
 }
 
+MODEL_DESCRIPTIONS = {
+    "A": r"""### Model A — Naive baseline
+
+**What it does:** Selects hydrants using nominal capacity and route distance. It does not model connection setup time, friction losses, or hose inventory.
+
+**Mathematical formulation:** For each candidate hydrant $i$, choose $x_i \in \{0,1\}$ and let $u \geq 0$ represent unmet demand:
+
+$$\sum_i C_i x_i + u \geq D$$
+
+The lexicographic objective first minimizes $u$, then minimizes total laying time:
+
+$$\sum_i \frac{d_i}{v}x_i$$
+
+**Parameters:** Uses $v$ (hose deployment rate). `hose_piece_m` is reported, but `q`, `gamma`, `carried_pieces`, and `max_lines_per_hydrant` are not used in the optimization.
+
+**Optimizer:** SciPy `scipy.optimize.milp`, using the HiGHS mixed-integer programming solver.""",
+    "B": r"""### Model B — Deployment-time
+
+**What it does:** Extends Model A by including a fixed connection/setup time, so both route distance and the number of hydrant connections affect the recommendation.
+
+**Mathematical formulation:** The demand constraint is the same as Model A:
+
+$$\sum_i C_i x_i + u \geq D$$
+
+After minimizing unmet demand $u$, it minimizes:
+
+$$\sum_i \left(\frac{d_i}{v} + q\right)x_i$$
+
+**Parameters:** Uses $v$ (hose deployment rate) and $q$ (setup time per hydrant connection). `hose_piece_m` is reported, but `gamma`, `carried_pieces`, and `max_lines_per_hydrant` are not used in the optimization.
+
+**Optimizer:** SciPy `scipy.optimize.milp`, using the HiGHS mixed-integer programming solver.""",
+    "C-soft": r"""### Model C-soft — Inventory-aware with reinforcement
+
+**What it does:** Models distance-related friction loss, multiple parallel hose lines, and carried hose inventory. It may request reinforcement hose when the carried inventory is insufficient, but penalizes that reinforcement.
+
+**Mathematical formulation:** For hydrant $i$ and line configuration $n$, choose $y_{i,n} \in \{0,1\}$, with at most one configuration per hydrant. Let $u \geq 0$ be unmet demand and $o \geq 0$ be extra hose pieces. Usable capacity is:
+
+$$a_{i,n} = \min\left(C_i, \frac{n\gamma}{\sqrt{d_i}}\right)$$
+
+The hose requirement for one line is $h_i = \max(1, \lceil d_i / hose\_piece\_m \rceil)$. The main constraints are:
+
+$$\sum_{i,n} a_{i,n}y_{i,n} + u \geq D$$
+
+$$\sum_{i,n} n h_i y_{i,n} \leq budget + o$$
+
+The lexicographic objective minimizes unmet demand, then reinforcement pieces $o$, then deployment effort:
+
+$$\sum_{i,n} n\left(\frac{h_i \cdot hose\_piece\_m}{v} + q\right)y_{i,n}$$
+
+**Parameters:** Uses $v$, $q$, $\gamma$, `hose_piece_m`, `carried_pieces`, and `max_lines_per_hydrant`.
+
+**Optimizer:** SciPy `scipy.optimize.milp`, using the HiGHS mixed-integer programming solver.""",
+    "C-hard": r"""### Model C-hard — Inventory-aware with fixed inventory
+
+**What it does:** Uses the same friction-loss and parallel-line model as C-soft, but does not allow reinforcement. All hose must fit within the available carried inventory.
+
+**Mathematical formulation:** It uses the same $y_{i,n}$, $u$, $a_{i,n}$, and $h_i$ definitions as C-soft, but applies a hard inventory constraint:
+
+$$\sum_{i,n} n h_i y_{i,n} \leq budget$$
+
+The lexicographic objective minimizes unmet demand first, then deployment effort. There is no reinforcement variable $o$.
+
+**Parameters:** Uses $v$, $q$, $\gamma$, `hose_piece_m`, `carried_pieces`, and `max_lines_per_hydrant`.
+
+**Optimizer:** SciPy `scipy.optimize.milp`, using the HiGHS mixed-integer programming solver.""",
+}
+
 
 def flow_tolerance(value: float) -> float:
     """Small absolute tolerance for comparing flows of magnitude ``value``."""

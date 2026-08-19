@@ -9,6 +9,7 @@ from domain import (
     DEFAULT_GAMMA,
     DEFAULT_MAX_LINES_PER_HYDRANT,
     HOSE_PIECE_M,
+    MODEL_DESCRIPTIONS,
     MODEL_OPTION_LABELS,
     Params,
 )
@@ -78,6 +79,9 @@ distance_method = st.radio(
     key="distance_method",
     horizontal=True,
 )
+
+with st.expander(f"Model description — {MODEL_OPTION_LABELS[model]}", expanded=True):
+    st.markdown(MODEL_DESCRIPTIONS[model])
 
 location_ok = lat is not None and lon is not None
 if not location_ok:
