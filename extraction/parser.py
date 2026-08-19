@@ -55,7 +55,15 @@ _FAILURE_KW_RE = re.compile(
 # A flow is treated as a NEW total only when one of these phrases is present.
 _DEMAND_PHRASE_RE = re.compile(
     r"increase\s+demand\s+to|raise\s+demand\s+to|update\s+demand\s+to"
+    r"|increase\s+demand\s+by|raise\s+demand\s+by|add\s+(?:another\s+)?"
+    r"(?=\d|one\b|two\b|three\b|four\b|five\b|six\b|seven\b|eight\b|nine\b|ten\b)"
     r"|now\s+require\w*|new\s+required\s+flow\s+is",
+    re.IGNORECASE,
+)
+
+_INCREMENTAL_DEMAND_RE = re.compile(
+    r"increase\s+(?:the\s+)?demand\s+by|raise\s+(?:the\s+)?demand\s+by"
+    r"|add\s+(?:another\s+)?(?:\d|one|two|three|four|five|six|seven|eight|nine|ten)",
     re.IGNORECASE,
 )
 
@@ -165,10 +173,12 @@ def detect_update(message):
     hydrant = _normalize_hydrant(m.group(0)) if m else None
     failure = hydrant is not None and bool(_FAILURE_KW_RE.search(text))
     demand_phrase = bool(_DEMAND_PHRASE_RE.search(text))
+    demand_is_incremental = bool(_INCREMENTAL_DEMAND_RE.search(text))
     return UpdateFacts(
         flow=flow,
         stated=stated,
         demand_phrase=demand_phrase,
         hydrant=hydrant,
         failure=failure,
+        demand_is_incremental=demand_is_incremental,
     )

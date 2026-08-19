@@ -72,6 +72,7 @@ class UpdateFacts:
     demand_phrase: bool
     hydrant: str | None
     failure: bool
+    demand_is_incremental: bool = False
 
 
 @dataclass(frozen=True)

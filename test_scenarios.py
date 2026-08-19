@@ -112,7 +112,9 @@ def test_demand_update_is_absolute_not_incremental():
 
     increment = detect_update("Increase demand by 5000 L/min")
     assert increment.stated is True
-    assert increment.demand_phrase is False
+    assert increment.demand_phrase is True
+    assert increment.demand_is_incremental is True
+    assert increment.flow == pytest.approx(5000.0)
 
 
 def test_load_missing_scenario_raises():

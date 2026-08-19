@@ -242,8 +242,10 @@ def apply_update(plan, message, hydrants_df, model=None, params=None,
         new["unavailable"].append(det.hydrant)
 
     if demand_update:
-        new["stated_minimum_flow_l_min"] = det.flow
-        new["effective_demand"] = planning_target_flow(det.flow, reserve)
+        current_flow = new.get("stated_minimum_flow_l_min") or 0.0
+        updated_flow = current_flow + det.flow if det.demand_is_incremental else det.flow
+        new["stated_minimum_flow_l_min"] = updated_flow
+        new["effective_demand"] = planning_target_flow(updated_flow, reserve)
 
     # No flow known yet -> legacy nearest-hydrant handling.
     if new["effective_demand"] is None:

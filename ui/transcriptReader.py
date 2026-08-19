@@ -56,6 +56,14 @@ class ParsedMessage(BaseModel):
             "If given in Gallons/min, convert it (1 US Gallon ≈ 3.78541 Liters). "
             "If no water requirement is mentioned at all, set to 0."
     )
+    demand_is_incremental: bool = Field(
+        default=False,
+        description=(
+            "True when the message explicitly adds to the active demand, such as "
+            "'increase by 500 L/min' or 'add another 500'. False when the number "
+            "is an absolute replacement total."
+        ),
+    )
     hydrant_id: Optional[str] = Field(
         default=None,
         description="Normalized hydrant ID such as H0479, if explicitly mentioned",
@@ -110,8 +118,8 @@ SYSTEM_PROMPT = (
     "- demand_update: an absolute replacement total for an active incident, such as 'increase demand to 5000 L/min' or 'we now need five thousand'.\n"
     "- hydrant_failure: an explicitly unavailable hydrant, such as 'H0479 is out of service', 'we lost hydrant 479', or 'hydrant four seven nine is not working'. Normalize the ID to H0479.\n"
     "- failure_and_demand: one message explicitly reports both an unavailable hydrant and an absolute new demand.\n"
-    "- chatter: greetings, status information, restoration reports, unsupported requests, or messages with no safe operational action.\n\n"
-    "A demand update is always an absolute new total. 'Increase by 5000', 'add another 5000', or similar relative wording is not an absolute total: set clarification_needed=true, ask whether 5000 is the new total, and do not create an operational action.\n"
+    "- chatter: greetings, status information, restoration reports, unsupported requests, or messages with no location, water requirement, or hydrant action. Pure chatter must not set clarification_needed.\n\n"
+    "Demand updates have two forms. 'Increase demand to 5000' or 'we now need 5000' is an absolute replacement total and must set demand_is_incremental=false. 'Increase demand by 500', 'add another 500', or similar wording is an increment to the active incident's current demand and must set demand_is_incremental=true. The application adds that delta to its active demand; do not set clarification_needed merely because the current total is not written in the message.\n"
     "Restoration messages such as 'back in service', 'repaired', or 'available again' are unsupported and must be chatter.\n"
     "Update messages may omit a location because the active incident supplies it. If a state-changing message is ambiguous about the hydrant or absolute demand, set clarification_needed=true, provide one short clarification question, and leave the uncertain fields empty.\n\n"
     "Location rules:\n"

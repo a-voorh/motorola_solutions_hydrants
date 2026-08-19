@@ -118,7 +118,7 @@ def _run_update(plan, message, hydrants_df, facts=None):
     )
 
 
-def _ai_update_facts(parsed):
+def _ai_update_facts(parsed, flow=None):
     """Adapt the AI's normalized action into the workflow update contract."""
     message_type = getattr(parsed, "message_type", "chatter") or "chatter"
     if message_type not in {"demand_update", "hydrant_failure", "failure_and_demand"}:
@@ -128,7 +128,7 @@ def _ai_update_facts(parsed):
     if hydrant:
         digits = "".join(ch for ch in str(hydrant) if ch.isdigit())
         hydrant = f"H{int(digits):04d}" if digits else None
-    flow = getattr(parsed, "water_lpm", 0.0) or None
+    flow = flow if flow is not None else (getattr(parsed, "water_lpm", 0.0) or None)
     demand_phrase = message_type in {"demand_update", "failure_and_demand"}
     return UpdateFacts(
         flow=flow,
@@ -137,6 +137,7 @@ def _ai_update_facts(parsed):
         hydrant=hydrant,
         failure=message_type in {"hydrant_failure", "failure_and_demand"}
         or bool(getattr(parsed, "out_of_service", False)),
+        demand_is_incremental=bool(getattr(parsed, "demand_is_incremental", False)),
     )
 
 
@@ -185,13 +186,29 @@ def propose_from_message(message, hydrants_df, location=None):
         api_flow = fallback_flow
     deterministic_update = detect_update(message)
     clarification_needed = bool(getattr(parsed, "clarification_needed", False))
-    ai_facts = _ai_update_facts(parsed) if parsed is not None else None
+    incremental = (
+        bool(getattr(parsed, "demand_is_incremental", False))
+        if parsed else deterministic_update.demand_is_incremental
+    )
+    if incremental:
+        current_flow = plan.get("stated_minimum_flow_l_min") if plan else None
+        if current_flow is None or api_flow <= 0:
+            clarification_needed = True
+        # ``apply_update`` adds the delta to the active demand. Keep the parsed
+        # flow as the delta so the same rule works for AI and deterministic paths.
+    ai_facts = _ai_update_facts(parsed, flow=api_flow if parsed is not None else None)
     update_facts = ai_facts or deterministic_update
     is_update = (
         parsed_type in {"demand_update", "hydrant_failure", "failure_and_demand"}
         or deterministic_update.failure
         or (deterministic_update.stated and deterministic_update.demand_phrase)
     )
+
+    # Keep small talk visible in the transcript, but do not produce an
+    # assistant response or trigger any operational workflow for it.
+    actionable = bool(loc) or api_flow > 0 or is_update or clarification_needed
+    if not actionable:
+        return None
 
     if loc:
         _seed_config(lat=loc[0], lon=loc[1])
