@@ -15,7 +15,7 @@ from ui.workspace import propose_from_message, render_workspace
 
 def _render_scenario_bar(hydrants_df):
     scenario_names = available_scenarios()
-    _default_index = scenario_names.index("default") if "default" in scenario_names else 0
+    _default_index = scenario_names.index("1") if "1" in scenario_names else 0
     scenario_name = st.selectbox("Scenario", scenario_names, index=_default_index, key="scenario_name")
     st.caption("Scripted talk-group playback through the same AI parser as Live Dialog (no timing).")
 
@@ -40,6 +40,13 @@ def _render_scenario_bar(hydrants_df):
         st.session_state["comparison"] = []
         st.session_state["awaiting_decision"] = False
         st.session_state["live_messages"] = []
+        for key in (
+            "live_graph", "live_method", "declined_proposal", "curating",
+            "exclude_selection", "require_selection", "_seed_config",
+            "lat", "lon", "fire_lat", "fire_lon", "fire_radius",
+        ):
+            st.session_state.pop(key, None)
+        st.rerun()
 
     if next_clicked and playback and not awaiting:
         scenario = playback["scenario"]

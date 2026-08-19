@@ -24,7 +24,7 @@ def _scenario_hydrants():
 def test_default_scenario_has_lively_messages_in_order():
     scenario = default_scenario()
     assert isinstance(scenario, Scenario)
-    assert scenario.id == "default"
+    assert scenario.id == "1"
     assert len(scenario.messages) == 12
 
     kinds = [m.kind for m in scenario.messages]
@@ -56,12 +56,12 @@ def test_message_fields_are_populated():
 
 def test_available_scenarios_includes_default():
     names = available_scenarios()
-    assert "default" in names
+    assert "1" in names
 
 
 def test_scenarios_available():
     names = available_scenarios()
-    for name in ("default", "warehouse_fire", "apartment_block", "growing_fire"):
+    for name in ("1", "2", "3", "4"):
         assert name in names
         assert load_scenario(name).messages  # loads and validates
 
@@ -126,7 +126,7 @@ def test_load_missing_scenario_raises():
 
 
 def test_load_scenario_by_name_equals_default():
-    scenario = load_scenario("default")
+    scenario = load_scenario("1")
     assert scenario.messages[0].text == "We need 600 L/min at Amager Bio."
 
 
@@ -208,7 +208,7 @@ def test_scenario_events_carry_timestamps():
 
 
 def test_demand_increase_scenario_replans_from_existing_lines():
-    scenario = load_scenario("growing_fire")
+    scenario = load_scenario("2")
 
     # Both absolute and incremental demand updates must be recognized.
     absolute = scenario.messages[2]

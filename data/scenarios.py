@@ -7,7 +7,7 @@ below). ``load_scenario`` reads and validates one file into :class:`Scenario` /
 JSON schema (per file)::
 
     {
-      "id": "default",                          # required, non-empty
+       "id": "1",                                # required, non-empty
       "title": "Standard residential fire",     # required, non-empty
        "messages": [                             # required, non-empty list; first starts incident
         {
@@ -94,7 +94,7 @@ def _message_from_json(msg):
     )
 
 
-def load_scenario(name="default"):
+def load_scenario(name="1"):
     """Load and validate ``scenarios/<name>.json`` into a :class:`Scenario`."""
     path = SCENARIOS_DIR / f"{name}.json"
     if not path.is_file():
@@ -116,4 +116,4 @@ def available_scenarios():
 
 def default_scenario():
     """Return the default demo scenario."""
-    return load_scenario("default")
+    return load_scenario("1")
