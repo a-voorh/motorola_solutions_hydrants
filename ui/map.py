@@ -10,6 +10,7 @@ import math
 
 import folium
 import streamlit as st
+from folium.plugins import FastMarkerCluster
 from streamlit_folium import st_folium
 
 from domain import DEFAULT_INCIDENT_LOCATION
@@ -73,14 +74,9 @@ def render_incident_map(lat, lon, hydrants_df, key="incident_map", height=500,
         hydrants_df["Latitude"].mean(), hydrants_df["Longitude"].mean())
     m = folium.Map(location=center, zoom_start=15)
 
-    for _, row in hydrants_df.iterrows():
-        folium.CircleMarker(
-            location=(row["Latitude"], row["Longitude"]),
-            radius=1.5,
-            color="gray",
-            fill=True,
-            fill_opacity=0.4,
-        ).add_to(m)
+    FastMarkerCluster(
+        hydrants_df[["Latitude", "Longitude"]].to_numpy().tolist(),
+    ).add_to(m)
 
     if radius is not None and lat is not None and lon is not None:
         folium.Circle(

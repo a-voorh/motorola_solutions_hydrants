@@ -166,6 +166,22 @@ def nearby_hydrants_network(fire_lat, fire_lon, radius_m, hydrants_df, graph, ma
     import pandas as pd
 
     avail = hydrants_df[hydrants_df["Available"] == True].copy()
+
+    # Network distance cannot be shorter than geodesic distance. Keep a small
+    # bounding-box margin for coordinate/projection differences, then do the
+    # expensive edge snapping only for plausible candidates.
+    margin = max(25.0, radius_m * 0.05)
+    lat_delta = (radius_m + margin) / 110574.0
+    lon_scale = max(0.1, np.cos(np.radians(fire_lat)))
+    lon_delta = (radius_m + margin) / (111320.0 * lon_scale)
+    avail = avail[
+        avail["Latitude"].between(fire_lat - lat_delta, fire_lat + lat_delta)
+        & avail["Longitude"].between(fire_lon - lon_delta, fire_lon + lon_delta)
+    ].copy()
+
+    if avail.empty:
+        return avail.set_index("Hydrant")[["Distance_m", "Capacity_L_min"]]
+
     avail["Distance_m"] = _snap_distances(
         graph, fire_lat, fire_lon,
         avail["Latitude"].to_numpy(), avail["Longitude"].to_numpy(),

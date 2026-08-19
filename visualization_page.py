@@ -3,6 +3,7 @@
 import folium
 import pandas as pd
 import streamlit as st
+from folium.plugins import FastMarkerCluster
 from streamlit_folium import st_folium
 
 from data import get_hydrants
@@ -38,15 +39,11 @@ distance_method = st.radio(
 center = (lat, lon) if (lat is not None and lon is not None) else (hydrants["Latitude"].mean(), hydrants["Longitude"].mean())
 m = folium.Map(location=center, zoom_start=13)
 
-# All hydrants (small gray markers).
-for _, row in hydrants.iterrows():
-    folium.CircleMarker(
-        location=(row["Latitude"], row["Longitude"]),
-        radius=1.5,
-        color="gray",
-        fill=True,
-        fill_opacity=0.4,
-    ).add_to(m)
+# All hydrants (small gray markers). A single fast cluster is much cheaper than
+# adding thousands of individual Folium objects to every map render.
+FastMarkerCluster(
+    hydrants[["Latitude", "Longitude"]].to_numpy().tolist(),
+).add_to(m)
 
 graph = None
 method = distance_method
@@ -78,7 +75,9 @@ if lat is not None and lon is not None:
             fill=True,
             fill_opacity=0.7,
         ).add_to(m)
-        if graph is not None and i < 30:
+        # Keep the overview responsive; all nearby hydrants remain marked, but
+        # only the closest ten get detailed street-route polylines.
+        if graph is not None and i < 10:
             add_route(m, lat, lon, locs.loc[h, "Latitude"], locs.loc[h, "Longitude"],
                       graph=graph, street_routes=True, color="green", weight=2, opacity=0.7)
 
