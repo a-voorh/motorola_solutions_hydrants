@@ -34,7 +34,7 @@ class ParsedMessage(BaseModel):
         default="chatter",
         description=(
             "One of initial_request, demand_update, hydrant_failure, "
-            "failure_and_demand, or chatter"
+            "failure_and_demand, location_update, or chatter"
         ),
     )
     latitude: Optional[float] = Field(
@@ -113,11 +113,12 @@ def geocode_location(query: str) -> Tuple[float, float]:
 SYSTEM_PROMPT = (
     "You interpret noisy, informal fire-dispatch messages for the Copenhagen / Denmark metropolitan area.\n"
     "Extract only facts supported by the message. Correct ordinary speech-recognition errors, spelling mistakes, abbreviations, missing punctuation, and minor word-order problems, but never invent a location, hydrant ID, or water requirement.\n\n"
-    "Classify the message as exactly one of: initial_request, demand_update, hydrant_failure, failure_and_demand, chatter.\n"
+    "Classify the message as exactly one of: initial_request, demand_update, hydrant_failure, failure_and_demand, location_update, chatter.\n"
     "- initial_request: a new incident request containing a water requirement, optionally with a location.\n"
     "- demand_update: an absolute replacement total for an active incident, such as 'increase demand to 5000 L/min' or 'we now need five thousand'.\n"
     "- hydrant_failure: an explicitly unavailable hydrant, such as 'H0479 is out of service', 'we lost hydrant 479', or 'hydrant four seven nine is not working'. Normalize the ID to H0479.\n"
     "- failure_and_demand: one message explicitly reports both an unavailable hydrant and an absolute new demand.\n"
+    "- location_update: a message that gives a new incident location, as coordinates or a landmark, without changing demand or hydrant status.\n"
     "- chatter: greetings, status information, restoration reports, unsupported requests, or messages with no location, water requirement, or hydrant action. Pure chatter must not set clarification_needed.\n\n"
     "Demand updates have two forms. 'Increase demand to 5000' or 'we now need 5000' is an absolute replacement total and must set demand_is_incremental=false. 'Increase demand by 500', 'add another 500', or similar wording is an increment to the active incident's current demand and must set demand_is_incremental=true. The application adds that delta to its active demand; do not set clarification_needed merely because the current total is not written in the message.\n"
     "Restoration messages such as 'back in service', 'repaired', or 'available again' are unsupported and must be chatter.\n"
@@ -176,7 +177,7 @@ async def parse_dispatch_message(payload: dict):
                 lat, lon = payload["current_location"]
             except (TypeError, ValueError):
                 raise HTTPException(status_code=422, detail="Invalid current_location")
-        elif parsed.message_type in {"demand_update", "hydrant_failure", "failure_and_demand", "chatter"}:
+        elif parsed.message_type in {"demand_update", "hydrant_failure", "failure_and_demand", "location_update", "chatter"}:
             lat, lon = None, None
         else:
             raise HTTPException(

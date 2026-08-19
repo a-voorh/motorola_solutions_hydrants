@@ -101,6 +101,38 @@ def _run_analysis(demand, lat, lon, hydrants_df):
     )
 
 
+def _run_relocation(plan, lat, lon, hydrants_df):
+    """Re-analyse an active incident at a new location using its settings."""
+    s = _settings()
+    model = plan.get("model", s["model"])
+    reserve = plan.get("planning_reserve_percent", s["reserve"])
+    demand = plan.get("stated_minimum_flow_l_min")
+    method, graph = s["distance_method"], None
+    if method == "network":
+        method, graph = _resolve_network(lat, lon, s["max_radius"])
+
+    st.session_state["live_method"] = method
+    st.session_state["live_graph"] = graph
+    request = IncidentRequest(
+        transcript=f"We need {demand:g} L/min",
+        location=(lat, lon),
+        planning_reserve_percent=reserve,
+    )
+    proposed, event, comparison = analyse_incident(
+        request,
+        hydrants_df,
+        model,
+        start_radius=s["start_radius"],
+        radius_step=s["radius_step"],
+        max_radius=s["max_radius"],
+        distance_method=method,
+        graph=graph,
+    )
+    event["kind"] = "location"
+    event["message"] = f"Incident moved to {lat:.6f}, {lon:.6f}"
+    return proposed, event, comparison
+
+
 def _run_update(plan, message, hydrants_df, facts=None):
     """Apply a failure/demand update -> (new_plan, event, error)."""
     s = _settings()
@@ -238,10 +270,17 @@ def propose_from_message(message, hydrants_df, location=None):
             summary = f"Updated demand to {update_facts.flow:g} L/min; current hydrants still cover it."
         else:
             summary = event.get("summary", "Recommendation recomputed.") if event else "Recommendation recomputed."
-    # 4. Handle initial analysis triggers based on parsed water demand and location.
+    # 4. Handle location changes before initial-demand handling.
+    elif loc and (parsed_type == "location_update" or api_flow <= 0):
+        if plan is not None and plan.get("stated_minimum_flow_l_min") is not None:
+            proposed, event, comparison = _run_relocation(plan, loc[0], loc[1], hydrants_df)
+            summary = f"Incident moved to {loc[0]:.6f}, {loc[1]:.6f}"
+        else:
+            summary = f"Location set to {loc[0]:.6f}, {loc[1]:.6f}. Describe the required flow."
+    # 5. Handle initial analysis triggers based on parsed water demand and location.
     elif api_flow > 0 and (
         plan is None
-        or parsed_type not in {"demand_update", "hydrant_failure", "failure_and_demand"}
+        or parsed_type not in {"demand_update", "hydrant_failure", "failure_and_demand", "location_update"}
     ):
         fb = _fallback_location()
         if fb is None:
@@ -249,14 +288,6 @@ def propose_from_message(message, hydrants_df, location=None):
         else:
             proposed, event, comparison = _run_analysis(api_flow, fb[0], fb[1], hydrants_df)
             summary = f"Initial request {api_flow:g} L/min at {fb[0]:.4f}, {fb[1]:.4f}"
-    elif loc:
-        if plan is not None and plan.get("stated_minimum_flow_l_min") is not None:
-            proposed, event, comparison = _run_analysis(
-                plan["stated_minimum_flow_l_min"], loc[0], loc[1], hydrants_df
-            )
-            summary = f"Location updated to {loc[0]:g}, {loc[1]:g}"
-        else:
-            summary = f"Location set to {loc[0]:g}, {loc[1]:g}. Describe the required flow."
     else:
         summary = "No configuration change detected."
 
