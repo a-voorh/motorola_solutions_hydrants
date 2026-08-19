@@ -4,19 +4,19 @@
   "messages": [
     {
       "timestamp": "2026-08-16T11:02:10",
-      "speaker": "Dispatch",
-      "text": "Pumper 2, report to the west gate for staging.",
+      "speaker": "Incident commander",
+      "text": "We need 2000 L/min at this location.",
       "offset_seconds": 0,
-      "location": null,
-      "kind": "chatter"
+      "location": [55.668943, 12.580154],
+      "kind": "request"
     },
     {
       "timestamp": "2026-08-16T11:03:40",
-      "speaker": "Incident commander",
-      "text": "We need 2000 L/min at this location.",
+      "speaker": "Dispatch",
+      "text": "Pumper 2, report to the west gate for staging.",
       "offset_seconds": 90,
-      "location": [55.668943, 12.580154],
-      "kind": "request"
+      "location": null,
+      "kind": "chatter"
     },
     {
       "timestamp": "2026-08-16T11:05:15",

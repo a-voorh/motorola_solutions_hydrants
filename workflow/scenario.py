@@ -2,8 +2,8 @@
 
 Turns a :class:`Scenario` into the same plan/event flow the manual UI produces:
 
-  * the first message that states a flow *and* carries a location becomes the
-    initial analysis (``analyse_incident``);
+  * the first message is expected to state a flow and carry a location, and
+    becomes the initial analysis (``analyse_incident``);
   * later messages are applied via ``process_update`` when the parser detects a
     failure or a demand change;
   * every other message is logged as a ``"chatter"`` event with no plan change.

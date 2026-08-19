@@ -7,7 +7,7 @@ import pytest
 
 from data import available_scenarios, default_scenario, load_scenario
 from domain import Scenario, ScenarioMessage
-from extraction import detect_update
+from extraction import detect_update, extract_flow
 from workflow import apply_scenario_message, run_scenario
 
 
@@ -28,7 +28,7 @@ def test_default_scenario_has_four_messages_in_order():
     assert len(scenario.messages) == 4
 
     kinds = [m.kind for m in scenario.messages]
-    assert kinds == ["chatter", "request", "update", "chatter"]
+    assert kinds == ["request", "chatter", "update", "chatter"]
 
 
 def test_message_fields_are_populated():
@@ -44,9 +44,9 @@ def test_message_fields_are_populated():
     offsets = [m.offset_seconds for m in scenario.messages]
     assert offsets == sorted(offsets)
 
-    # location only on the request and update messages
-    assert scenario.messages[0].location is None
-    assert scenario.messages[1].location == (55.664178, 12.607972)
+    # The first message establishes the incident; later chatter may omit location.
+    assert scenario.messages[0].location == (55.664178, 12.607972)
+    assert scenario.messages[1].location is None
     assert scenario.messages[2].location == (55.664178, 12.607972)
     assert scenario.messages[3].location is None
 
@@ -63,9 +63,18 @@ def test_scenarios_available():
         assert load_scenario(name).messages  # loads and validates
 
 
+def test_every_script_starts_with_flow_and_location():
+    for name in available_scenarios():
+        first = load_scenario(name).messages[0]
+        flow, stated = extract_flow(first.text)
+        assert stated, name
+        assert flow is not None, name
+        assert first.location is not None, name
+
+
 def test_request_message_is_parser_ready():
     scenario = default_scenario()
-    facts = detect_update(scenario.messages[1].text)
+    facts = detect_update(scenario.messages[0].text)
     assert facts.stated is True
     assert facts.flow == pytest.approx(600.0)
 
@@ -89,6 +98,23 @@ def test_update_message_is_parser_ready():
     assert facts.hydrant == "H0479"
 
 
+def test_hydrant_word_form_is_normalized():
+    facts = detect_update("Hydrant 0479 is out of service")
+    assert facts.failure is True
+    assert facts.hydrant == "H0479"
+
+
+def test_demand_update_is_absolute_not_incremental():
+    absolute = detect_update("Increase demand to 5000 L/min")
+    assert absolute.stated is True
+    assert absolute.demand_phrase is True
+    assert absolute.flow == pytest.approx(5000.0)
+
+    increment = detect_update("Increase demand by 5000 L/min")
+    assert increment.stated is True
+    assert increment.demand_phrase is False
+
+
 def test_load_missing_scenario_raises():
     with pytest.raises(FileNotFoundError):
         load_scenario("does_not_exist")
@@ -96,7 +122,7 @@ def test_load_missing_scenario_raises():
 
 def test_load_scenario_by_name_equals_default():
     scenario = load_scenario("default")
-    assert scenario.messages[1].text == "We need 600 L/min at this location."
+    assert scenario.messages[0].text == "We need 600 L/min at this location."
 
 
 def test_malformed_scenario_raises(tmp_path, monkeypatch):
@@ -120,7 +146,7 @@ def test_run_scenario_produces_expected_event_sequence():
     plan, event_log, comparison = run_scenario(
         default_scenario(), _scenario_hydrants(), model="B", distance_method="gis",
     )
-    assert [e["kind"] for e in event_log] == ["chatter", "initial", "failure", "chatter"]
+    assert [e["kind"] for e in event_log] == ["initial", "chatter", "failure", "chatter"]
     assert "H0479" in plan["unavailable"]
     assert "H0479" not in plan["selected"]
     assert len(comparison) == 4  # Models A/B/C-soft/C-hard
@@ -135,7 +161,7 @@ def test_step_through_messages_matches_run_scenario():
             plan, comparison, message, hydrants, model="B", distance_method="gis",
         )
         log.append(event["kind"])
-    assert log == ["chatter", "initial", "failure", "chatter"]
+    assert log == ["initial", "chatter", "failure", "chatter"]
     assert plan is not None
     assert "H0479" in plan["unavailable"]
 

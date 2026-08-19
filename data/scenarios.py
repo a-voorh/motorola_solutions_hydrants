@@ -9,13 +9,13 @@ JSON schema (per file)::
     {
       "id": "default",                          # required, non-empty
       "title": "Standard residential fire",     # required, non-empty
-      "messages": [                             # required, non-empty list
+       "messages": [                             # required, non-empty list; first starts incident
         {
           "timestamp": "2026-08-16T09:14:32",   # required, ISO-8601 string
           "speaker": "Dispatch",                # required, non-empty
           "text": "Unit 2, confirm status.",    # required, non-empty
           "offset_seconds": 0,                  # optional number (default 0)
-          "location": null,                     # optional: null or [lat, lon]
+           "location": null,                     # first message must be [lat, lon]
           "kind": "chatter"                     # optional string or null
         }
       ]
@@ -29,6 +29,7 @@ import re
 from pathlib import Path
 
 from domain import Scenario, ScenarioMessage
+from extraction import extract_flow
 
 SCENARIOS_DIR = Path(__file__).resolve().parent.parent / "scenarios"
 
@@ -49,6 +50,17 @@ def _validate_scenario(raw, name):
         raise ValueError(f"Scenario '{name}': 'messages' must be a non-empty list.")
     for i, msg in enumerate(messages):
         _validate_message(msg, name, i)
+
+    first = messages[0]
+    _flow, stated = extract_flow(first["text"])
+    if not stated:
+        raise ValueError(
+            f"Scenario '{name}': first message must state the required flow."
+        )
+    if first.get("location") is None:
+        raise ValueError(
+            f"Scenario '{name}': first message must include an incident location."
+        )
     return raw
 
 

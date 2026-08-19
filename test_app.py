@@ -322,23 +322,22 @@ def test_scenario_load_and_step_through(app):
     assert app.session_state["playback"]["index"] == 0
     assert app.session_state["plan"] is None
 
-    # Step 1: chatter (no plan, no proposal).
+    # Step 1: initial request -> proposal.
     app.button(key="next_msg_btn").click()
     app.run()
     assert app.session_state["playback"]["index"] == 1
-    assert app.session_state["plan"] is None
-    assert app.session_state["awaiting_decision"] is False
-
-    # Step 2: request -> proposal (awaits decision).
-    app.button(key="next_msg_btn").click()
-    app.run()
-    assert app.session_state["playback"]["index"] == 2
     assert app.session_state["awaiting_decision"] is True
     assert app.session_state["proposed_plan"] is not None
 
+    # Accept the initial recommendation, then step through chatter.
     app.button(key="live_accept_btn").click()
     app.run()
     assert app.session_state["plan"] is not None
+    assert app.session_state["awaiting_decision"] is False
+
+    app.button(key="next_msg_btn").click()
+    app.run()
+    assert app.session_state["playback"]["index"] == 2
     assert app.session_state["awaiting_decision"] is False
 
     # Step 3: failure -> proposal.

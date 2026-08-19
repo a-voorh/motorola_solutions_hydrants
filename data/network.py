@@ -11,8 +11,9 @@ module stays free of UI dependencies.
 
 import os
 import pickle
+from pathlib import Path
 
-GRAPH_PATH = "cache/street_network.pkl"
+GRAPH_PATH = Path(__file__).resolve().parent.parent / "cache" / "street_network.pkl"
 NETWORK_TYPE = "all"
 
 

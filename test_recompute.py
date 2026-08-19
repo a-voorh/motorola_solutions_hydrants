@@ -3,7 +3,7 @@
 import pytest
 import pandas as pd
 
-from domain import HydrantLine, IncidentRequest, ModelResult, Params, hose_pieces
+from domain import HydrantLine, IncidentRequest, ModelResult, Params, UpdateFacts, hose_pieces
 from workflow import analyse_incident, apply_update, recompute_plan
 
 
@@ -232,3 +232,29 @@ def test_covered_demand_update_is_metadata_only():
         max_radius=1500, radius_extension=0, distance_method="manhattan",
     )
     assert status2 is None
+
+
+def test_ai_normalized_facts_support_relaxed_demand_wording():
+    hydrants = pd.DataFrame({
+        "Hydrant": ["H1", "H2"],
+        "Latitude": [55.6, 55.6],
+        "Longitude": [12.5, 12.5001],
+        "Capacity_L_min": [1000.0, 1000.0],
+        "Available": [True, True],
+    })
+    request = IncidentRequest(transcript="We need 1000 L/min",
+                              location=(55.6, 12.5), planning_reserve_percent=0.0)
+    plan, _e, _c = analyse_incident(
+        request, hydrants, "B", Params(), max_radius=1500,
+        distance_method="manhattan",
+    )
+    facts = UpdateFacts(
+        flow=1500.0, stated=True, demand_phrase=True,
+        hydrant=None, failure=False,
+    )
+    new, _det, error = apply_update(
+        plan, "make that fifteen hundred litres per minute", hydrants, "B",
+        distance_method="manhattan", facts=facts,
+    )
+    assert error is None
+    assert new["stated_minimum_flow_l_min"] == pytest.approx(1500.0)

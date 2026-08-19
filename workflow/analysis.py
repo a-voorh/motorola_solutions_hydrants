@@ -220,9 +220,10 @@ def apply_update(plan, message, hydrants_df, model=None, params=None,
                  radius_extension=DEFAULT_RADIUS_EXTENSION_M,
                  planning_reserve_percent=None,
                  distance_method="gis",
-                 graph=None):
+                 graph=None,
+                 facts=None):
     """Apply one radio update to ``plan`` -> (new_plan, det, error)."""
-    det = detect_update(message)
+    det = facts or detect_update(message)
     demand_update = det.stated and det.demand_phrase
     if not det.failure and not demand_update:
         return None, None, "unrecognized"
@@ -292,12 +293,14 @@ def process_update(plan, message, hydrants_df, model=None, params=None,
                    radius_extension=DEFAULT_RADIUS_EXTENSION_M,
                    planning_reserve_percent=None,
                    distance_method="gis",
-                   graph=None):
+                   graph=None,
+                   facts=None):
     """Run an update and build the event (retained/added) for logging."""
     new, det, error = apply_update(
         plan, message, hydrants_df, model, params, start_radius, radius_step,
         max_radius, radius_extension, planning_reserve_percent, distance_method,
         graph,
+        facts=facts,
     )
     if error == "unrecognized":
         return None, None, error

@@ -44,8 +44,8 @@ _WORD_FLOW_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Hydrant IDs look like H0479 (case-insensitive).
-_HYDRANT_RE = re.compile(r"\bH\d+\b", re.IGNORECASE)
+# Hydrant references may be written as either "H0479" or "Hydrant 0479".
+_HYDRANT_RE = re.compile(r"\b(?:H\d+|hydrant\s+\d+)\b", re.IGNORECASE)
 
 # A hydrant failure is signalled by an ID plus one of these phrases.
 _FAILURE_KW_RE = re.compile(

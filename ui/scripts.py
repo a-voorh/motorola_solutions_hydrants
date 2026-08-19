@@ -17,7 +17,7 @@ def _render_scenario_bar(hydrants_df):
     scenario_names = available_scenarios()
     _default_index = scenario_names.index("default") if "default" in scenario_names else 0
     scenario_name = st.selectbox("Scenario", scenario_names, index=_default_index, key="scenario_name")
-    st.caption("Scripted talk-group playback (deterministic; no timing).")
+    st.caption("Scripted talk-group playback through the same AI parser as Live Dialog (no timing).")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -45,6 +45,8 @@ def _render_scenario_bar(hydrants_df):
         scenario = playback["scenario"]
         message = scenario.messages[playback["index"]]
         text = f"{message.speaker}: {message.text}" if message.speaker else message.text
+        # Script playback deliberately uses the same AI parsing and proposal
+        # flow as a manually entered Live Dialog message.
         propose_from_message(text, hydrants_df, location=message.location)
         st.session_state["playback"]["index"] += 1
 

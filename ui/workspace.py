@@ -14,8 +14,14 @@ import requests
 import streamlit as st
 from ui.transcriptReader import parse_with_openai, geocode_location
 
-from domain import CARRIED_PIECES, DEFAULT_RADIUS_EXTENSION_M, MODEL_OPTION_LABELS, IncidentRequest
-from extraction import detect_update, extract_location
+from domain import (
+    CARRIED_PIECES,
+    DEFAULT_RADIUS_EXTENSION_M,
+    MODEL_OPTION_LABELS,
+    IncidentRequest,
+    UpdateFacts,
+)
+from extraction import detect_update, extract_flow, extract_location
 from graph_cache import get_graph
 from ui.components import render_result_body, render_result_header
 from ui.map import render_hydrant_map, render_selection_map
@@ -95,7 +101,7 @@ def _run_analysis(demand, lat, lon, hydrants_df):
     )
 
 
-def _run_update(plan, message, hydrants_df):
+def _run_update(plan, message, hydrants_df, facts=None):
     """Apply a failure/demand update -> (new_plan, event, error)."""
     s = _settings()
     method, graph = s["distance_method"], None
@@ -108,7 +114,29 @@ def _run_update(plan, message, hydrants_df):
         plan, message, hydrants_df, s["model"],
         start_radius=s["start_radius"], radius_step=s["radius_step"],
         max_radius=s["max_radius"], radius_extension=s["radius_extension"],
-        distance_method=method, graph=graph,
+        distance_method=method, graph=graph, facts=facts,
+    )
+
+
+def _ai_update_facts(parsed):
+    """Adapt the AI's normalized action into the workflow update contract."""
+    message_type = getattr(parsed, "message_type", "chatter") or "chatter"
+    if message_type not in {"demand_update", "hydrant_failure", "failure_and_demand"}:
+        return None
+
+    hydrant = getattr(parsed, "hydrant_id", None)
+    if hydrant:
+        digits = "".join(ch for ch in str(hydrant) if ch.isdigit())
+        hydrant = f"H{int(digits):04d}" if digits else None
+    flow = getattr(parsed, "water_lpm", 0.0) or None
+    demand_phrase = message_type in {"demand_update", "failure_and_demand"}
+    return UpdateFacts(
+        flow=flow,
+        stated=flow is not None and demand_phrase,
+        demand_phrase=demand_phrase,
+        hydrant=hydrant,
+        failure=message_type in {"hydrant_failure", "failure_and_demand"}
+        or bool(getattr(parsed, "out_of_service", False)),
     )
 
 
@@ -123,38 +151,27 @@ def propose_from_message(message, hydrants_df, location=None):
     _append_live("user", message)
 
     api_lat, api_lon, api_flow = None, None, 0.0
-
-    print(f"\n[DEBUG 1] Starting parse_with_openai for: '{message}'", flush=True)
-    st.write(f"🔍 Parsing message: `{message}`")
+    parsed = None
+    parsed_type = "chatter"
 
     try:
         parsed = parse_with_openai(message)
-        print(f"[DEBUG 2] Raw parsed object: {parsed}", flush=True)
-        st.write(f"📋 Parsed raw result: `{parsed}`")
 
-        # Use the actual attribute names defined in ParsedMessage
-        # (or fallback safely using getattr)
         api_lat = getattr(parsed, "latitude", None) or getattr(parsed, "x", None)
         api_lon = getattr(parsed, "longitude", None) or getattr(parsed, "y", None)
         api_flow = getattr(parsed, "water_lpm", 0.0) or getattr(parsed, "w", 0.0)
         loc_name = getattr(parsed, "location_name", None)
-
-        print(f"[DEBUG 3] Extracted values -> Lat: {api_lat}, Lon: {api_lon}, Flow: {api_flow}, Place: {loc_name}", flush=True)
+        parsed_type = getattr(parsed, "message_type", "chatter") or "chatter"
 
         # Geocode if coordinates are missing but a place name exists
         if (api_lat is None or api_lon is None) and loc_name:
-            print(f"[DEBUG 4] Geocoding place name: '{loc_name}'", flush=True)
             try:
                 api_lat, api_lon = geocode_location(loc_name)
-                print(f"[DEBUG 5] Geocoding success: ({api_lat}, {api_lon})", flush=True)
             except Exception as geo_err:
-                print(f"[DEBUG 5 Error] Geocode failed: {geo_err}", flush=True)
                 st.warning(f"Could not geocode location '{loc_name}': {geo_err}")
 
     except Exception as e:
-        print(f"[DEBUG ERROR] OpenAI parsing failed: {e}", flush=True)
         st.error(f"OpenAI parsing failed: {e}")
-        # Note: Do not let errors fail silently
 
     # 2. Determine target incident coordinates
     if api_lat is not None and api_lon is not None:
@@ -163,6 +180,18 @@ def propose_from_message(message, hydrants_df, location=None):
         loc = location or extract_location(message)
 
     plan = st.session_state.get("plan")
+    fallback_flow, fallback_stated = extract_flow(message)
+    if api_flow <= 0 and fallback_stated:
+        api_flow = fallback_flow
+    deterministic_update = detect_update(message)
+    clarification_needed = bool(getattr(parsed, "clarification_needed", False))
+    ai_facts = _ai_update_facts(parsed) if parsed is not None else None
+    update_facts = ai_facts or deterministic_update
+    is_update = (
+        parsed_type in {"demand_update", "hydrant_failure", "failure_and_demand"}
+        or deterministic_update.failure
+        or (deterministic_update.stated and deterministic_update.demand_phrase)
+    )
 
     if loc:
         _seed_config(lat=loc[0], lon=loc[1])
@@ -177,10 +206,26 @@ def propose_from_message(message, hydrants_df, location=None):
     proposed = None
     comparison = None
     event = None
-    if api_flow <=0:
-        api_flow = 100
-    # 3. Handle analysis triggers based on parsed water demand and location
-    if api_flow > 0:
+    # 3. Apply updates to the active incident; updates intentionally reuse its
+    # location and produce a proposal rather than committing immediately.
+    if clarification_needed:
+        summary = getattr(parsed, "clarification", None) or (
+            "I need clarification before changing the operational plan."
+        )
+    elif plan is not None and is_update:
+        proposed, event, error = _run_update(plan, message, hydrants_df, facts=update_facts)
+        if error == "unrecognized":
+            proposed, event = None, None
+            summary = "No supported operational change detected."
+        elif error == "covered":
+            summary = f"Updated demand to {update_facts.flow:g} L/min; current hydrants still cover it."
+        else:
+            summary = event.get("summary", "Recommendation recomputed.") if event else "Recommendation recomputed."
+    # 4. Handle initial analysis triggers based on parsed water demand and location.
+    elif api_flow > 0 and (
+        plan is None
+        or parsed_type not in {"demand_update", "hydrant_failure", "failure_and_demand"}
+    ):
         fb = _fallback_location()
         if fb is None:
             summary = "Set a location (or include coordinates/landmarks) before requesting a flow."
@@ -206,10 +251,6 @@ def propose_from_message(message, hydrants_df, location=None):
     st.session_state["awaiting_decision"] = proposed is not None
 
     _append_live("assistant", summary)
-    print('Summary')
-    if loc:
-        print(f"[DEBUG] Location (lat, lon): {loc}")
-    print(f"[DEBUG] Water flow (L/min): {api_flow}")
     return summary
 
 
@@ -429,7 +470,6 @@ def _render_dialog(hydrants_df):
         submitted = st.form_submit_button("Send", key="live_send_btn")
 
     if submitted and msg:
-        print(msg)
         propose_from_message(msg, hydrants_df)
         st.rerun()
 
