@@ -21,7 +21,7 @@ from domain import (
     IncidentRequest,
     Params,
 )
-from extraction import detect_update, extract_flow
+from extraction import detect_update, extract_flow, extract_location
 from workflow.analysis import analyse_incident, process_update
 
 
@@ -82,6 +82,34 @@ def apply_scenario_message(plan, comparison, message, hydrants_df, model="B",
             event["speaker"] = message.speaker
             event["timestamp"] = message.timestamp
             return new_plan, event, comparison
+
+    # A location-only message moves the incident and starts a fresh analysis at
+    # the new point using the active incident's stated demand.
+    new_location = extract_location(message.text)
+    current_flow = plan.get("stated_minimum_flow_l_min")
+    if new_location is not None and current_flow is not None:
+        unavailable = set(plan.get("unavailable", []))
+        analysis_hydrants = hydrants_df[
+            ~hydrants_df["Hydrant"].isin(unavailable)
+        ]
+        request = IncidentRequest(
+            transcript=f"We need {current_flow:g} L/min",
+            location=new_location,
+            planning_reserve_percent=plan.get(
+                "planning_reserve_percent", planning_reserve_percent
+            ),
+        )
+        new_plan, event, comparison = analyse_incident(
+            request, analysis_hydrants, plan.get("model", model), params,
+            start_radius=start_radius, radius_step=radius_step,
+            max_radius=max_radius, distance_method=distance_method, graph=graph,
+        )
+        event["kind"] = "location"
+        event["message"] = message.text
+        event["speaker"] = message.speaker
+        event["timestamp"] = message.timestamp
+        new_plan["unavailable"] = list(unavailable)
+        return new_plan, event, comparison
 
     return plan, _chatter_event(message), comparison
 

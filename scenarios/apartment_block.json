@@ -1,11 +1,11 @@
 {
   "id": "apartment_block",
-  "title": "Apartment block fire (hydrant failure)",
+  "title": "Apartment block fire (multiple hydrant failures)",
   "messages": [
     {
       "timestamp": "2026-08-16T14:21:05",
       "speaker": "Incident commander",
-      "text": "We need 900 L/min at this location.",
+      "text": "We need 900 L/min at Assistens Cemetery.",
       "offset_seconds": 0,
       "location": [55.690764, 12.560332],
       "kind": "request"
@@ -13,7 +13,7 @@
     {
       "timestamp": "2026-08-16T14:21:50",
       "speaker": "Dispatch",
-      "text": "Smoke visible from the upper floors.",
+      "text": "Smoke is visible from the upper floors.",
       "offset_seconds": 45,
       "location": null,
       "kind": "chatter"
@@ -21,16 +21,72 @@
     {
       "timestamp": "2026-08-16T14:24:30",
       "speaker": "Pumper 1",
-      "text": "H0484 is out of service.",
+      "text": "H4453 is out of service.",
       "offset_seconds": 205,
-      "location": [55.690764, 12.560332],
-      "kind": "update"
+      "location": null,
+      "kind": "failure"
     },
     {
       "timestamp": "2026-08-16T14:25:10",
       "speaker": "Unit 2",
-      "text": "Evacuation is complete.",
+      "text": "Evacuation is complete on the north stairwell.",
       "offset_seconds": 245,
+      "location": null,
+      "kind": "chatter"
+    },
+    {
+      "timestamp": "2026-08-16T14:26:00",
+      "speaker": "Force Majeure",
+      "text": "H0209 is out of service.",
+      "offset_seconds": 290,
+      "location": null,
+      "kind": "force_majeure"
+    },
+    {
+      "timestamp": "2026-08-16T14:27:15",
+      "speaker": "Incident commander",
+      "text": "Increase demand by 300 L/min.",
+      "offset_seconds": 365,
+      "location": null,
+      "kind": "demand"
+    },
+    {
+      "timestamp": "2026-08-16T14:28:00",
+      "speaker": "Dispatch",
+      "text": "A relief crew is taking over the lobby search.",
+      "offset_seconds": 410,
+      "location": null,
+      "kind": "chatter"
+    },
+    {
+      "timestamp": "2026-08-16T14:29:20",
+      "speaker": "Incident commander",
+      "text": "Residents report fire in the rear wing at 55.691041, 12.559634.",
+      "offset_seconds": 495,
+      "location": null,
+      "kind": "location"
+    },
+    {
+      "timestamp": "2026-08-16T14:30:05",
+      "speaker": "Force Majeure",
+      "text": "H4455 is out of service.",
+      "offset_seconds": 540,
+      "location": null,
+      "kind": "force_majeure"
+    },
+    {
+      "timestamp": "2026-08-16T14:31:00",
+      "speaker": "Unit 2",
+      "text": "All residents are accounted for on the east side.",
+      "offset_seconds": 595,
+      "location": null,
+      "kind": "chatter"
+    },
+    {
+      "timestamp": "2026-08-16T14:32:10",
+      "speaker": "Dispatch",
+      "text": "Keep the access lane clear for the aerial ladder.",
+      "offset_seconds": 665,
       "location": null,
       "kind": "chatter"
     }

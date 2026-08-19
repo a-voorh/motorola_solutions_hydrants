@@ -1,11 +1,11 @@
 {
   "id": "default",
-  "title": "Standard residential fire (demo)",
+  "title": "Standard residential fire (multi-channel escalation)",
   "messages": [
     {
       "timestamp": "2026-08-16T09:14:32",
       "speaker": "Incident commander",
-      "text": "We need 600 L/min at this location.",
+      "text": "We need 600 L/min at Amager Bio.",
       "offset_seconds": 0,
       "location": [55.664178, 12.607972],
       "kind": "request"
@@ -13,8 +13,16 @@
     {
       "timestamp": "2026-08-16T09:15:02",
       "speaker": "Dispatch",
-      "text": "Unit 2, confirm your status at the staging area.",
+      "text": "Copy, water supply is being established at the fire ground.",
       "offset_seconds": 30,
+      "location": null,
+      "kind": "chatter"
+    },
+    {
+      "timestamp": "2026-08-16T09:15:45",
+      "speaker": "Unit 2",
+      "text": "We are on scene; smoke is coming from the roof level.",
+      "offset_seconds": 73,
       "location": null,
       "kind": "chatter"
     },
@@ -23,14 +31,70 @@
       "speaker": "Pumper 1",
       "text": "H0479 is out of service.",
       "offset_seconds": 120,
-      "location": [55.664178, 12.607972],
-      "kind": "update"
+      "location": null,
+      "kind": "failure"
     },
     {
-      "timestamp": "2026-08-16T09:17:32",
+      "timestamp": "2026-08-16T09:17:05",
+      "speaker": "Force Majeure",
+      "text": "H4643 is out of service as well.",
+      "offset_seconds": 153,
+      "location": null,
+      "kind": "force_majeure"
+    },
+    {
+      "timestamp": "2026-08-16T09:18:10",
+      "speaker": "Incident commander",
+      "text": "Increase demand to 900 L/min.",
+      "offset_seconds": 218,
+      "location": null,
+      "kind": "demand"
+    },
+    {
+      "timestamp": "2026-08-16T09:18:45",
+      "speaker": "Dispatch",
+      "text": "Copy, additional resources are being sent to the incident.",
+      "offset_seconds": 253,
+      "location": null,
+      "kind": "chatter"
+    },
+    {
+      "timestamp": "2026-08-16T09:20:12",
+      "speaker": "Incident commander",
+      "text": "The fire has spread to the adjacent building at 55.664913, 12.608513.",
+      "offset_seconds": 340,
+      "location": null,
+      "kind": "location"
+    },
+    {
+      "timestamp": "2026-08-16T09:20:45",
+      "speaker": "Force Majeure",
+      "text": "H0484 is out of service.",
+      "offset_seconds": 373,
+      "location": null,
+      "kind": "force_majeure"
+    },
+    {
+      "timestamp": "2026-08-16T09:21:30",
+      "speaker": "Incident commander",
+      "text": "Increase demand by 300 L/min.",
+      "offset_seconds": 418,
+      "location": null,
+      "kind": "demand"
+    },
+    {
+      "timestamp": "2026-08-16T09:22:10",
       "speaker": "Unit 2",
-      "text": "Copy that, standing by.",
-      "offset_seconds": 180,
+      "text": "Evacuation of the adjacent building is underway.",
+      "offset_seconds": 458,
+      "location": null,
+      "kind": "chatter"
+    },
+    {
+      "timestamp": "2026-08-16T09:23:00",
+      "speaker": "Dispatch",
+      "text": "Standing by for further instructions.",
+      "offset_seconds": 508,
       "location": null,
       "kind": "chatter"
     }

@@ -111,6 +111,8 @@ $$\sum_i \left(\frac{d_i}{v} + q\right)x_i$$
 
 $$a_{i,n} = \min\left(C_i, \frac{n\gamma}{\sqrt{d_i}}\right)$$
 
+**Capacity proxy:** Our original capacity proxy was chosen for simplicity. It closely matches the length dependence obtained by rearranging the Hazen–Williams pressure-loss relationship under a fixed pressure budget.
+
 The hose requirement for one line is $h_i = \max(1, \lceil d_i / hose\_piece\_m \rceil)$. The main constraints are:
 
 $$\sum_{i,n} a_{i,n}y_{i,n} + u \geq D$$
@@ -129,6 +131,8 @@ $$\sum_{i,n} n\left(\frac{h_i \cdot hose\_piece\_m}{v} + q\right)y_{i,n}$$
 **What it does:** Uses the same friction-loss and parallel-line model as C-soft, but does not allow reinforcement. All hose must fit within the available carried inventory.
 
 **Mathematical formulation:** It uses the same $y_{i,n}$, $u$, $a_{i,n}$, and $h_i$ definitions as C-soft, but applies a hard inventory constraint:
+
+**Capacity proxy:** Our original capacity proxy was chosen for simplicity. It closely matches the length dependence obtained by rearranging the Hazen–Williams pressure-loss relationship under a fixed pressure budget.
 
 $$\sum_{i,n} n h_i y_{i,n} \leq budget$$
 

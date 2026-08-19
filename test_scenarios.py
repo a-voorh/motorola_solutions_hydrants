@@ -21,14 +21,18 @@ def _scenario_hydrants():
     })
 
 
-def test_default_scenario_has_four_messages_in_order():
+def test_default_scenario_has_lively_messages_in_order():
     scenario = default_scenario()
     assert isinstance(scenario, Scenario)
     assert scenario.id == "default"
-    assert len(scenario.messages) == 4
+    assert len(scenario.messages) == 12
 
     kinds = [m.kind for m in scenario.messages]
-    assert kinds == ["request", "chatter", "update", "chatter"]
+    assert kinds == [
+        "request", "chatter", "chatter", "failure", "force_majeure",
+        "demand", "chatter", "location", "force_majeure", "demand",
+        "chatter", "chatter",
+    ]
 
 
 def test_message_fields_are_populated():
@@ -44,11 +48,10 @@ def test_message_fields_are_populated():
     offsets = [m.offset_seconds for m in scenario.messages]
     assert offsets == sorted(offsets)
 
-    # The first message establishes the incident; later chatter may omit location.
+    # The first message establishes the incident; subsequent messages carry
+    # their own location only when they move the incident.
     assert scenario.messages[0].location == (55.664178, 12.607972)
-    assert scenario.messages[1].location is None
-    assert scenario.messages[2].location == (55.664178, 12.607972)
-    assert scenario.messages[3].location is None
+    assert all(m.location is None for m in scenario.messages[1:])
 
 
 def test_available_scenarios_includes_default():
@@ -93,7 +96,7 @@ def test_extract_location_parses_coordinates():
 
 def test_update_message_is_parser_ready():
     scenario = default_scenario()
-    facts = detect_update(scenario.messages[2].text)
+    facts = detect_update(scenario.messages[3].text)
     assert facts.failure is True
     assert facts.hydrant == "H0479"
 
@@ -124,7 +127,7 @@ def test_load_missing_scenario_raises():
 
 def test_load_scenario_by_name_equals_default():
     scenario = load_scenario("default")
-    assert scenario.messages[0].text == "We need 600 L/min at this location."
+    assert scenario.messages[0].text == "We need 600 L/min at Amager Bio."
 
 
 def test_malformed_scenario_raises(tmp_path, monkeypatch):
@@ -148,7 +151,10 @@ def test_run_scenario_produces_expected_event_sequence():
     plan, event_log, comparison = run_scenario(
         default_scenario(), _scenario_hydrants(), model="B", distance_method="gis",
     )
-    assert [e["kind"] for e in event_log] == ["initial", "chatter", "failure", "chatter"]
+    assert [e["kind"] for e in event_log] == [
+        "initial", "chatter", "chatter", "failure", "failure", "demand",
+        "chatter", "location", "failure", "demand", "chatter", "chatter",
+    ]
     assert "H0479" in plan["unavailable"]
     assert "H0479" not in plan["selected"]
     assert len(comparison) == 4  # Models A/B/C-soft/C-hard
@@ -163,7 +169,10 @@ def test_step_through_messages_matches_run_scenario():
             plan, comparison, message, hydrants, model="B", distance_method="gis",
         )
         log.append(event["kind"])
-    assert log == ["initial", "chatter", "failure", "chatter"]
+    assert log == [
+        "initial", "chatter", "chatter", "failure", "failure", "demand",
+        "chatter", "location", "failure", "demand", "chatter", "chatter",
+    ]
     assert plan is not None
     assert "H0479" in plan["unavailable"]
 
@@ -201,16 +210,24 @@ def test_scenario_events_carry_timestamps():
 def test_demand_increase_scenario_replans_from_existing_lines():
     scenario = load_scenario("growing_fire")
 
-    # The update message must be a recognised demand increase.
-    update = scenario.messages[2]
-    assert update.kind == "update"
-    facts = detect_update(update.text)
+    # Both absolute and incremental demand updates must be recognized.
+    absolute = scenario.messages[2]
+    assert absolute.kind == "demand"
+    facts = detect_update(absolute.text)
     assert facts.stated and facts.demand_phrase
-    assert facts.flow == pytest.approx(1500.0)
+    assert facts.flow == pytest.approx(1000.0)
+
+    incremental = scenario.messages[4]
+    incremental_facts = detect_update(incremental.text)
+    assert incremental_facts.demand_is_incremental is True
+    assert incremental_facts.flow == pytest.approx(500.0)
 
     plan, event_log, _comparison = run_scenario(
         scenario, _scenario_hydrants(), model="B", distance_method="gis",
     )
-    assert [e["kind"] for e in event_log] == ["initial", "chatter", "demand", "chatter"]
-    assert plan["stated_minimum_flow_l_min"] == pytest.approx(1500.0)
-    assert plan["effective_demand"] == pytest.approx(2250.0)  # 1500 * 1.5 reserve
+    assert [e["kind"] for e in event_log] == [
+        "initial", "chatter", "demand", "chatter", "demand", "failure",
+        "chatter", "demand", "failure", "chatter",
+    ]
+    assert plan["stated_minimum_flow_l_min"] == pytest.approx(2000.0)
+    assert plan["effective_demand"] == pytest.approx(3000.0)  # 2000 * 1.5 reserve

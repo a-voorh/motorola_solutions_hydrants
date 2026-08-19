@@ -1,11 +1,11 @@
 {
   "id": "warehouse_fire",
-  "title": "Warehouse fire (growing demand)",
+  "title": "Warehouse fire (failure and demand escalation)",
   "messages": [
     {
       "timestamp": "2026-08-16T11:02:10",
       "speaker": "Incident commander",
-      "text": "We need 2000 L/min at this location.",
+      "text": "We need 2000 L/min at Kalvebod Brygge.",
       "offset_seconds": 0,
       "location": [55.668943, 12.580154],
       "kind": "request"
@@ -21,16 +21,72 @@
     {
       "timestamp": "2026-08-16T11:05:15",
       "speaker": "Incident commander",
-      "text": "Increase demand to 3000 L/min.",
+      "text": "H0380 is out of service and increase demand to 3000 L/min.",
       "offset_seconds": 185,
-      "location": [55.668943, 12.580154],
-      "kind": "update"
+      "location": null,
+      "kind": "failure+demand"
     },
     {
       "timestamp": "2026-08-16T11:06:02",
       "speaker": "Pumper 2",
-      "text": "Copy, laying an additional line now.",
+      "text": "The west gate is clear for incoming crews.",
       "offset_seconds": 232,
+      "location": null,
+      "kind": "chatter"
+    },
+    {
+      "timestamp": "2026-08-16T11:06:40",
+      "speaker": "Force Majeure",
+      "text": "H4643 is out of service.",
+      "offset_seconds": 270,
+      "location": null,
+      "kind": "force_majeure"
+    },
+    {
+      "timestamp": "2026-08-16T11:08:10",
+      "speaker": "Incident commander",
+      "text": "Increase demand to 3500 L/min.",
+      "offset_seconds": 360,
+      "location": null,
+      "kind": "demand"
+    },
+    {
+      "timestamp": "2026-08-16T11:09:00",
+      "speaker": "Dispatch",
+      "text": "Foam unit is arriving at the southern entrance.",
+      "offset_seconds": 410,
+      "location": null,
+      "kind": "chatter"
+    },
+    {
+      "timestamp": "2026-08-16T11:10:20",
+      "speaker": "Incident commander",
+      "text": "Fire has reached the storage yard at 55.668124, 12.581583.",
+      "offset_seconds": 490,
+      "location": null,
+      "kind": "location"
+    },
+    {
+      "timestamp": "2026-08-16T11:11:05",
+      "speaker": "Force Majeure",
+      "text": "H0379 is out of service.",
+      "offset_seconds": 535,
+      "location": null,
+      "kind": "force_majeure"
+    },
+    {
+      "timestamp": "2026-08-16T11:12:00",
+      "speaker": "Unit 3",
+      "text": "The storage yard team is in position.",
+      "offset_seconds": 590,
+      "location": null,
+      "kind": "chatter"
+    },
+    {
+      "timestamp": "2026-08-16T11:13:10",
+      "speaker": "Dispatch",
+      "text": "Maintain the exclusion zone around the warehouse.",
+      "offset_seconds": 660,
       "location": null,
       "kind": "chatter"
     }

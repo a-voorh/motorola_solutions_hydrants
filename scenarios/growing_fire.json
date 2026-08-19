@@ -1,11 +1,11 @@
 {
   "id": "growing_fire",
-  "title": "Growing fire (demand increase)",
+  "title": "Growing fire (demand escalation)",
   "messages": [
     {
       "timestamp": "2026-08-16T16:05:20",
       "speaker": "Incident commander",
-      "text": "We need 500 L/min at this location.",
+      "text": "We need 500 L/min at 55.664178, 12.607972.",
       "offset_seconds": 0,
       "location": [55.664178, 12.607972],
       "kind": "request"
@@ -21,16 +21,64 @@
     {
       "timestamp": "2026-08-16T16:09:15",
       "speaker": "Incident commander",
-      "text": "Increase demand to 1500 L/min.",
+      "text": "Increase demand to 1000 L/min.",
       "offset_seconds": 235,
-      "location": [55.664178, 12.607972],
-      "kind": "update"
+      "location": null,
+      "kind": "demand"
     },
     {
       "timestamp": "2026-08-16T16:10:05",
       "speaker": "Pumper 1",
-      "text": "Additional lines laid, supply increasing.",
+      "text": "The fire is moving through the upper floors.",
       "offset_seconds": 285,
+      "location": null,
+      "kind": "chatter"
+    },
+    {
+      "timestamp": "2026-08-16T16:11:20",
+      "speaker": "Incident commander",
+      "text": "Increase demand by 500 L/min.",
+      "offset_seconds": 360,
+      "location": null,
+      "kind": "demand"
+    },
+    {
+      "timestamp": "2026-08-16T16:12:05",
+      "speaker": "Force Majeure",
+      "text": "H0596 is out of service.",
+      "offset_seconds": 405,
+      "location": null,
+      "kind": "force_majeure"
+    },
+    {
+      "timestamp": "2026-08-16T16:13:00",
+      "speaker": "Dispatch",
+      "text": "A second pumper is approaching from the south.",
+      "offset_seconds": 460,
+      "location": null,
+      "kind": "chatter"
+    },
+    {
+      "timestamp": "2026-08-16T16:14:25",
+      "speaker": "Incident commander",
+      "text": "Increase demand to 2000 L/min.",
+      "offset_seconds": 545,
+      "location": null,
+      "kind": "demand"
+    },
+    {
+      "timestamp": "2026-08-16T16:15:10",
+      "speaker": "Force Majeure",
+      "text": "H3270 is out of service.",
+      "offset_seconds": 590,
+      "location": null,
+      "kind": "force_majeure"
+    },
+    {
+      "timestamp": "2026-08-16T16:16:00",
+      "speaker": "Unit 2",
+      "text": "Additional lines are being laid on the east side.",
+      "offset_seconds": 640,
       "location": null,
       "kind": "chatter"
     }

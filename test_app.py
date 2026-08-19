@@ -329,29 +329,78 @@ def test_scenario_load_and_step_through(app):
     assert app.session_state["awaiting_decision"] is True
     assert app.session_state["proposed_plan"] is not None
 
-    # Accept the initial recommendation, then step through chatter.
+    # Accept the initial recommendation, then step through the live scenario.
     app.button(key="live_accept_btn").click()
     app.run()
     assert app.session_state["plan"] is not None
     assert app.session_state["awaiting_decision"] is False
 
+    # Messages 2-3: chatter.
     app.button(key="next_msg_btn").click()
     app.run()
     assert app.session_state["playback"]["index"] == 2
     assert app.session_state["awaiting_decision"] is False
 
-    # Step 3: failure -> proposal.
     app.button(key="next_msg_btn").click()
     app.run()
     assert app.session_state["playback"]["index"] == 3
-    assert app.session_state["awaiting_decision"] is True
-
-    app.button(key="live_accept_btn").click()
-    app.run()
     assert app.session_state["awaiting_decision"] is False
-    assert "H0479" in app.session_state["plan"]["unavailable"]
 
-    # Step 4: chatter -> done.
+    # Message 4: relevant hydrant failure.
     app.button(key="next_msg_btn").click()
     app.run()
     assert app.session_state["playback"]["index"] == 4
+    assert app.session_state["awaiting_decision"] is True
+
+    app.button(key="live_accept_btn").click(); app.run()
+    assert "H0479" in app.session_state["plan"]["unavailable"]
+
+    # Message 5: irrelevant Force Majeure failure.
+    app.button(key="next_msg_btn").click()
+    app.run()
+    assert app.session_state["playback"]["index"] == 5
+    assert app.session_state["awaiting_decision"] is True
+    app.button(key="live_accept_btn").click(); app.run()
+    assert "H4643" in app.session_state["plan"]["unavailable"]
+
+    # Message 6: absolute demand update.
+    app.button(key="next_msg_btn").click(); app.run()
+    assert app.session_state["playback"]["index"] == 6
+    assert app.session_state["awaiting_decision"] is True
+    app.button(key="live_accept_btn").click(); app.run()
+    assert app.session_state["plan"]["stated_minimum_flow_l_min"] == pytest.approx(900.0)
+
+    # Message 7: chatter.
+    app.button(key="next_msg_btn").click(); app.run()
+    assert app.session_state["playback"]["index"] == 7
+    assert app.session_state["awaiting_decision"] is False
+
+    # Message 8: location update stages a recommendation at the new point.
+    app.button(key="next_msg_btn").click(); app.run()
+    assert app.session_state["playback"]["index"] == 8
+    assert app.session_state["awaiting_decision"] is True
+    app.button(key="live_accept_btn").click(); app.run()
+    assert app.session_state["plan"]["location"] == pytest.approx(
+        (55.664913, 12.608513)
+    )
+
+    # Message 9: relevant Force Majeure failure.
+    app.button(key="next_msg_btn").click(); app.run()
+    assert app.session_state["playback"]["index"] == 9
+    assert app.session_state["awaiting_decision"] is True
+    app.button(key="live_accept_btn").click(); app.run()
+    assert "H0484" in app.session_state["plan"]["unavailable"]
+
+    # Message 10: incremental demand update (900 + 300 = 1200).
+    app.button(key="next_msg_btn").click(); app.run()
+    assert app.session_state["playback"]["index"] == 10
+    assert app.session_state["awaiting_decision"] is True
+    app.button(key="live_accept_btn").click(); app.run()
+    assert app.session_state["plan"]["stated_minimum_flow_l_min"] == pytest.approx(1200.0)
+
+    # Messages 11-12: chatter, then playback is complete.
+    app.button(key="next_msg_btn").click(); app.run()
+    assert app.session_state["playback"]["index"] == 11
+    assert app.session_state["awaiting_decision"] is False
+    app.button(key="next_msg_btn").click(); app.run()
+    assert app.session_state["playback"]["index"] == 12

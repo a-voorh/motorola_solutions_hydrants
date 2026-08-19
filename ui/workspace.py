@@ -118,9 +118,13 @@ def _run_relocation(plan, lat, lon, hydrants_df):
         location=(lat, lon),
         planning_reserve_percent=reserve,
     )
+    unavailable = set(plan.get("unavailable", []))
+    analysis_hydrants = hydrants_df[
+        ~hydrants_df["Hydrant"].isin(unavailable)
+    ]
     proposed, event, comparison = analyse_incident(
         request,
-        hydrants_df,
+        analysis_hydrants,
         model,
         start_radius=s["start_radius"],
         radius_step=s["radius_step"],
@@ -130,6 +134,7 @@ def _run_relocation(plan, lat, lon, hydrants_df):
     )
     event["kind"] = "location"
     event["message"] = f"Incident moved to {lat:.6f}, {lon:.6f}"
+    proposed["unavailable"] = list(unavailable)
     return proposed, event, comparison
 
 
