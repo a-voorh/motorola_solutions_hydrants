@@ -77,7 +77,7 @@ MODEL_DESCRIPTIONS = {
 
 **What it does:** Selects hydrants using nominal capacity and route distance. It does not model connection setup time, friction losses, or hose inventory.
 
-**Mathematical formulation:** For each candidate hydrant $i$, choose $x_i \in \{0,1\}$ and let $u \geq 0$ represent unmet demand:
+**Mathematical formulation:** Let $R$ denote the required flow and $D = R \times (1 + reserve/100)$ the planning target, where *reserve* is the planning-reserve percentage. For each candidate hydrant $i$, choose $x_i \in \{0,1\}$ and let $u \geq 0$ represent unmet demand:
 
 $$\sum_i C_i x_i + u \geq D$$
 
@@ -92,7 +92,7 @@ $$\sum_i \frac{d_i}{v}x_i$$
 
 **What it does:** Extends Model A by including a fixed connection/setup time, so both route distance and the number of hydrant connections affect the recommendation.
 
-**Mathematical formulation:** The demand constraint is the same as Model A:
+**Mathematical formulation:** Let $R$ denote the required flow and $D = R \times (1 + reserve/100)$ the planning target, where *reserve* is the planning-reserve percentage. The demand constraint is the same as Model A:
 
 $$\sum_i C_i x_i + u \geq D$$
 
@@ -107,7 +107,7 @@ $$\sum_i \left(\frac{d_i}{v} + q\right)x_i$$
 
 **What it does:** Models distance-related friction loss, multiple parallel hose lines, and carried hose inventory. It may request reinforcement hose when the carried inventory is insufficient, but penalizes that reinforcement.
 
-**Mathematical formulation:** For hydrant $i$ and line configuration $n$, choose $y_{i,n} \in \{0,1\}$, with at most one configuration per hydrant. Let $u \geq 0$ be unmet demand and $o \geq 0$ be extra hose pieces. Usable capacity is:
+**Mathematical formulation:** Let $R$ denote the required flow and $D = R \times (1 + reserve/100)$ the planning target, where *reserve* is the planning-reserve percentage. For hydrant $i$ and line configuration $n$, choose $y_{i,n} \in \{0,1\}$, with at most one configuration per hydrant. The integer line count satisfies $0 \leq n \leq L$, where $L$ is `max_lines_per_hydrant` and $n=0$ means that the hydrant is not selected. Let $u \geq 0$ be unmet demand and $o \geq 0$ be extra hose pieces. Usable capacity is:
 
 $$a_{i,n} = \min\left(C_i, \frac{n\gamma}{\sqrt{d_i}}\right)$$
 
@@ -130,7 +130,7 @@ $$\sum_{i,n} n\left(\frac{h_i \cdot hose\_piece\_m}{v} + q\right)y_{i,n}$$
 
 **What it does:** Uses the same friction-loss and parallel-line model as C-soft, but does not allow reinforcement. All hose must fit within the available carried inventory.
 
-**Mathematical formulation:** It uses the same $y_{i,n}$, $u$, $a_{i,n}$, and $h_i$ definitions as C-soft, but applies a hard inventory constraint:
+**Mathematical formulation:** Let $R$ denote the required flow and $D = R \times (1 + reserve/100)$ the planning target, where *reserve* is the planning-reserve percentage. It uses the same $y_{i,n}$, $u$, $a_{i,n}$, and $h_i$ definitions as C-soft. The integer line count satisfies $0 \leq n \leq L$, where $L$ is `max_lines_per_hydrant` and $n=0$ means that the hydrant is not selected. It applies a hard inventory constraint:
 
 **Capacity proxy:** Our original capacity proxy was chosen for simplicity. It closely matches the length dependence obtained by rearranging the Hazen–Williams pressure-loss relationship under a fixed pressure budget.
 
